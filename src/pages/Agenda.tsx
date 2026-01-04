@@ -1,11 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { format } from "date-fns";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarMoeda } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { ChevronLeft, ChevronRight, Clock, User, MapPin, Video, X, ThumbsUp, XCircle, Phone, CalendarDays, CalendarCheck, Coffee, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, User, MapPin, Video, X, ThumbsUp, XCircle, Phone, CalendarDays, CalendarCheck, Coffee, Pencil, Plus, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
+import { AgendamentoFormModal } from "@/components/AgendamentoFormModal";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Agendamento {
   id: number;
@@ -38,15 +41,14 @@ const statusColors: Record<string, { bg: string; border: string; text: string }>
   blue: { bg: "bg-status-blue/10", border: "border-status-blue", text: "text-status-blue" },
   red: { bg: "bg-status-red/10", border: "border-status-red", text: "text-status-red" },
   lilac: { bg: "bg-status-lilac/10", border: "border-status-lilac", text: "text-status-lilac" },
-  yellow: { bg: "bg-status-lilac/10", border: "border-status-lilac", text: "text-status-lilac" },
 };
 
 const statusOptions = [
   { color: "blue", label: "Atendido", icon: ThumbsUp, bgColor: "bg-status-blue/20", iconBg: "bg-status-blue" },
   { color: "red", label: "Cancelado", icon: XCircle, bgColor: "bg-status-red/20", iconBg: "bg-status-red" },
-  { color: "yellow", label: "Não Desmarcado", icon: Clock, bgColor: "bg-status-lilac/20", iconBg: "bg-status-lilac" },
+  { color: "lilac", label: "Não Desmarcado", icon: Clock, bgColor: "bg-status-lilac/20", iconBg: "bg-status-lilac" },
   { color: "green", label: "Agendado", icon: CalendarCheck, bgColor: "bg-status-green/20", iconBg: "bg-status-green" },
-  { color: "lilac", label: "Agenda Semanal", icon: CalendarDays, bgColor: "bg-status-lilac/20", iconBg: "bg-status-lilac" },
+  { color: "agenda-semanal", label: "Agenda Semanal", icon: CalendarDays, bgColor: "bg-status-lilac/20", iconBg: "bg-status-lilac" },
 ];
 
 const Agenda = () => {
@@ -60,6 +62,7 @@ const Agenda = () => {
   const [selectedAgendamento, setSelectedAgendamento] = useState<Agendamento | null>(null);
   const [selectedCompromisso, setSelectedCompromisso] = useState<CompromissoPessoal | null>(null);
   const [observacoes, setObservacoes] = useState("");
+  const [showAgendamentoModal, setShowAgendamentoModal] = useState(false);
 
   const handleEditAgendamento = () => {
     if (selectedAgendamento) {
@@ -67,9 +70,60 @@ const Agenda = () => {
     }
   };
 
+  const handleDeleteAgendamento = async () => {
+    if (!selectedAgendamento) return;
+    
+    if (!confirm("Deseja realmente excluir este agendamento?")) return;
+
+    try {
+      const { error } = await supabase.from("agendamentos").delete().eq("id", selectedAgendamento.id);
+
+      if (error) throw error;
+      toast.success("Agendamento excluído com sucesso!");
+      setSelectedAgendamento(null);
+      fetchAgendamentos();
+    } catch (error) {
+      console.error("Erro ao excluir agendamento:", error);
+      toast.error("Erro ao excluir agendamento");
+    }
+  };
+
+  const handleViewDetails = () => {
+    if (selectedAgendamento) {
+      navigate(`/agendamentos?view=${selectedAgendamento.id}`);
+    }
+  };
+
   useEffect(() => {
     fetchAgendamentos();
   }, [currentDate]);
+
+  // Realtime subscription para sincronizar mudanças entre páginas
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel("agenda-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "agendamentos" },
+        () => {
+          fetchAgendamentos();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "compromissos_pessoais" },
+        () => {
+          fetchAgendamentos();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, currentDate]);
 
   const fetchAgendamentos = async () => {
     try {
@@ -188,9 +242,8 @@ const Agenda = () => {
   const handleStatusChange = async (newColor: string) => {
     if (!selectedAgendamento) return;
 
-    // Green (Agendado) agora também atualiza o status no banco
-
-    if (newColor === "lilac") {
+    // Agenda Semanal tem lógica especial
+    if (newColor === "agenda-semanal") {
       await handleAgendaSemanal();
       return;
     }
@@ -291,12 +344,12 @@ const Agenda = () => {
     });
   };
 
-  // Gerar slots de horário de 30 em 30 min (07:00 às 19:00)
+  // Gerar slots de horário de 30 em 30 min (06:00 às 22:00) para cobrir todos agendamentos
   const generateTimeSlots = () => {
     const slots = [];
-    for (let hour = 7; hour <= 19; hour++) {
+    for (let hour = 6; hour <= 22; hour++) {
       slots.push(`${hour.toString().padStart(2, "0")}:00`);
-      if (hour < 19) {
+      if (hour < 22) {
         slots.push(`${hour.toString().padStart(2, "0")}:30`);
       }
     }
@@ -305,7 +358,19 @@ const Agenda = () => {
 
   const timeSlots = generateTimeSlots();
 
-  // Calcula quantos slots de 30min um agendamento ocupa
+  // Calcula a altura proporcional de um agendamento baseado na duração real em minutos
+  const calculateHeightForAgendamento = (inicio: string, fim: string) => {
+    const [inicioHour, inicioMin] = inicio.substring(0, 5).split(":").map(Number);
+    const [fimHour, fimMin] = fim.substring(0, 5).split(":").map(Number);
+    const inicioMinutes = inicioHour * 60 + inicioMin;
+    const fimMinutes = fimHour * 60 + fimMin;
+    const durationMinutes = fimMinutes - inicioMinutes;
+    // Cada slot de 30 min = 28px de altura base, então 1 minuto = 28/30 px
+    const pixelsPerMinute = 28 / 30;
+    return Math.max(20, durationMinutes * pixelsPerMinute - 4); // -4 para margem
+  };
+
+  // Calcula quantos slots de 30min um agendamento ocupa (para compromissos)
   const calculateSlotSpan = (inicio: string, fim: string) => {
     const [inicioHour, inicioMin] = inicio.substring(0, 5).split(":").map(Number);
     const [fimHour, fimMin] = fim.substring(0, 5).split(":").map(Number);
@@ -315,35 +380,21 @@ const Agenda = () => {
     return Math.max(1, Math.ceil(durationMinutes / 30));
   };
 
+  // Retorna todos os agendamentos que começam dentro deste slot de 30min (slot: 15:00 → retorna agendamentos que começam entre 15:00 e 15:29)
   const getAgendamentosForTimeSlot = (date: Date, timeSlot: string) => {
     const dateStr = date.toISOString().split("T")[0];
-    return agendamentos.filter((a) => {
-      if (a.data_consulta !== dateStr) return false;
-      // Compara apenas HH:MM (ignora segundos do banco)
-      const inicioFormatado = a.inicio.substring(0, 5);
-      return inicioFormatado === timeSlot;
-    });
-  };
-
-  // Verifica se um slot está ocupado por um agendamento que começou antes
-  const isSlotOccupiedByPreviousAgendamento = (date: Date, timeSlot: string) => {
-    const dateStr = date.toISOString().split("T")[0];
     const [slotHour, slotMin] = timeSlot.split(":").map(Number);
-    const slotMinutes = slotHour * 60 + slotMin;
+    const slotStartMinutes = slotHour * 60 + slotMin;
+    const slotEndMinutes = slotStartMinutes + 30;
     
-    return agendamentos.some((a) => {
+    return agendamentos.filter((a) => {
       if (a.data_consulta !== dateStr) return false;
       const [inicioHour, inicioMin] = a.inicio.substring(0, 5).split(":").map(Number);
       const inicioMinutes = inicioHour * 60 + inicioMin;
-      // O agendamento começa antes deste slot
-      if (inicioMinutes >= slotMinutes) return false;
-      // Verifica se ainda está ocupando este slot
-      const slotSpan = calculateSlotSpan(a.inicio, a.fim);
-      const endSlotMinutes = inicioMinutes + (slotSpan * 30);
-      return slotMinutes < endSlotMinutes;
+      // Retorna se o agendamento começa dentro deste slot de 30min
+      return inicioMinutes >= slotStartMinutes && inicioMinutes < slotEndMinutes;
     });
   };
-
   const isSlotOccupiedByPreviousCompromisso = (date: Date, timeSlot: string) => {
     const dateStr = date.toISOString().split("T")[0];
     const [slotHour, slotMin] = timeSlot.split(":").map(Number);
@@ -366,12 +417,20 @@ const Agenda = () => {
 
   return (
     <Layout title="Agenda">
+      <TooltipProvider>
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col gap-4 mb-4 md:mb-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg md:text-2xl font-bold text-foreground capitalize">{formatDateHeader()}</h2>
             <div className="flex items-center gap-1 md:gap-2">
+              <button
+                onClick={() => setShowAgendamentoModal(true)}
+                className="btn-primary flex items-center justify-center gap-2 h-10 px-3 md:px-4 text-sm"
+              >
+                <Plus size={18} />
+                <span className="hidden sm:inline">Adicionar</span>
+              </button>
               <button
                 onClick={() => navigateDate("prev")}
                 className="p-1.5 md:p-2 rounded-lg hover:bg-muted transition-colors"
@@ -472,61 +531,111 @@ const Agenda = () => {
                             const slotAgendamentos = getAgendamentosForTimeSlot(date, timeSlot);
                             const slotCompromissos = getCompromissosForTimeSlot(date, timeSlot);
                             const isToday = date.toDateString() === new Date().toDateString();
-                            const isOccupiedByAgendamento = isSlotOccupiedByPreviousAgendamento(date, timeSlot);
                             const isOccupiedByCompromisso = isSlotOccupiedByPreviousCompromisso(date, timeSlot);
+                            
+                            const hasAnyContent = slotAgendamentos.length > 0 || slotCompromissos.length > 0 || isOccupiedByCompromisso;
+                            const slotEndMin = parseInt(timeSlot.split(":")[0]) * 60 + parseInt(timeSlot.split(":")[1]) + 30;
+                            const slotEndHour = Math.floor(slotEndMin / 60).toString().padStart(2, "0");
+                            const slotEndMinute = (slotEndMin % 60).toString().padStart(2, "0");
+                            const slotEndTime = `${slotEndHour}:${slotEndMinute}`;
                             
                             return (
                               <td
                                 key={`${timeSlot}-${dayIndex}`}
                                 className={`p-0.5 border-l border-border/30 hover:bg-muted/30 transition-colors align-top relative ${isToday ? "bg-amber-50/50 dark:bg-amber-900/10" : ""}`}
                               >
+                                {/* Tooltip para slots vazios */}
+                                {!hasAnyContent && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="absolute inset-0 cursor-pointer" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="bg-popover text-popover-foreground border-border">
+                                      <p className="text-xs font-medium">{format(date, "dd/MM/yyyy")}</p>
+                                      <p className="text-xs text-muted-foreground">Horário disponível: {timeSlot} - {slotEndTime}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
                                 {/* Compromissos Pessoais - só renderiza se não está ocupado por compromisso anterior */}
                                 {!isOccupiedByCompromisso && slotCompromissos.map((comp) => {
                                   const slotSpan = calculateSlotSpan(comp.inicio, comp.fim);
                                   const height = slotSpan * 28 - (slotSpan * 4);
                                   return (
-                                    <div
-                                      key={`comp-${comp.id}`}
-                                      onClick={() => handleCompromissoClick(comp)}
-                                      className="absolute left-1 right-1 px-1.5 py-0.5 bg-amber-500 cursor-pointer hover:opacity-80 transition-opacity rounded z-10"
-                                      style={{ height: `${height}px`, top: 2 }}
-                                    >
-                                      <span className="text-white text-xs font-medium truncate block">
-                                        {comp.nome}
-                                      </span>
-                                    </div>
+                                    <Tooltip key={`comp-${comp.id}`}>
+                                      <TooltipTrigger asChild>
+                                        <div
+                                          onClick={() => handleCompromissoClick(comp)}
+                                          className="absolute left-1 right-1 px-1.5 py-0.5 bg-amber-500 cursor-pointer hover:opacity-80 transition-opacity rounded z-10"
+                                          style={{ height: `${height}px`, top: 2 }}
+                                        >
+                                          <span className="text-white text-xs font-medium truncate block">
+                                            {comp.nome}
+                                          </span>
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="bg-popover text-popover-foreground border-border">
+                                        <p className="text-xs font-medium">{format(date, "dd/MM/yyyy")}</p>
+                                        <p className="text-xs">{comp.nome}</p>
+                                        <p className="text-xs text-muted-foreground">{comp.inicio.substring(0, 5)} - {comp.fim.substring(0, 5)}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
                                   );
                                 })}
-                                {/* Agendamentos - só renderiza se não está ocupado por agendamento anterior */}
-                                {!isOccupiedByAgendamento && slotAgendamentos.map((ag, agIndex) => {
+                                {/* Agendamentos que iniciam neste slot */}
+                                {slotAgendamentos.map((ag) => {
                                   const bgColor = ag.color === "green" ? "bg-status-green" :
                                                   ag.color === "blue" ? "bg-status-blue" :
                                                   ag.color === "red" ? "bg-status-red" :
                                                   ag.color === "yellow" ? "bg-status-lilac" :
                                                   ag.color === "lilac" ? "bg-status-lilac" : "bg-status-green";
-                                  const slotSpan = calculateSlotSpan(ag.inicio, ag.fim);
-                                  const height = slotSpan * 28 - (slotSpan * 4);
+                                  // Usar altura proporcional à duração real
+                                  const height = calculateHeightForAgendamento(ag.inicio, ag.fim);
+                                  
+                                  // Calcular offset vertical baseado no minuto de início dentro do slot de 30min
+                                  const [agInicioHour, agInicioMin] = ag.inicio.substring(0, 5).split(":").map(Number);
+                                  const [slotHour, slotMin] = timeSlot.split(":").map(Number);
+                                  const agInicioMinutes = agInicioHour * 60 + agInicioMin;
+                                  const slotStartMinutes = slotHour * 60 + slotMin;
+                                  const minutesOffset = agInicioMinutes - slotStartMinutes;
+                                  const pixelsPerMinute = 28 / 30;
+                                  const topOffset = 2 + (minutesOffset * pixelsPerMinute);
+                                  
+                                  // Para agendamentos que começam neste slot, calcular sobreposição apenas com outros que também começam aqui
+                                  const agIndex = slotAgendamentos.findIndex(a => a.id === ag.id);
                                   const totalItems = slotAgendamentos.length;
-                                  const gap = 4;
+                                  const gap = 2;
                                   const totalGaps = (totalItems - 1) * gap;
-                                  const itemWidth = `calc((100% - 8px - ${totalGaps}px) / ${totalItems})`;
-                                  const leftOffset = `calc(4px + ${agIndex} * ((100% - 8px - ${totalGaps}px) / ${totalItems} + ${gap}px))`;
+                                  const itemWidth = totalItems > 1 
+                                    ? `calc((100% - 8px - ${totalGaps}px) / ${totalItems})`
+                                    : "calc(100% - 8px)";
+                                  const leftOffset = totalItems > 1 
+                                    ? `calc(4px + ${agIndex} * ((100% - 8px - ${totalGaps}px) / ${totalItems} + ${gap}px))`
+                                    : "4px";
+                                  
                                   return (
-                                    <div
-                                      key={ag.id}
-                                      onClick={() => handleAgendamentoClick(ag)}
-                                      className={`absolute px-1.5 py-0.5 ${bgColor} cursor-pointer hover:opacity-80 transition-opacity rounded z-10`}
-                                      style={{ 
-                                        height: `${height}px`, 
-                                        top: 2,
-                                        left: totalItems > 1 ? leftOffset : 4,
-                                        width: totalItems > 1 ? itemWidth : "calc(100% - 8px)"
-                                      }}
-                                    >
-                                      <span className={`text-xs font-medium truncate block ${ag.modalidade === "Online" ? "text-orange-400" : "text-white"}`}>
-                                        {ag.nome_paciente}
-                                      </span>
-                                    </div>
+                                    <Tooltip key={ag.id}>
+                                      <TooltipTrigger asChild>
+                                        <div
+                                          onClick={() => handleAgendamentoClick(ag)}
+                                          className={`absolute px-1.5 py-0.5 ${bgColor} cursor-pointer hover:opacity-80 transition-opacity rounded z-10`}
+                                          style={{ 
+                                            height: `${height}px`, 
+                                            top: topOffset,
+                                            left: leftOffset,
+                                            width: itemWidth
+                                          }}
+                                        >
+                                          <span className={`text-xs font-medium truncate block ${ag.modalidade === "Online" ? "text-orange-400" : "text-white"}`}>
+                                            {ag.nome_paciente}
+                                          </span>
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="bg-popover text-popover-foreground border-border">
+                                        <p className="text-xs font-medium">{format(date, "dd/MM/yyyy")}</p>
+                                        <p className="text-xs">{ag.nome_paciente}</p>
+                                        <p className="text-xs text-muted-foreground">{ag.inicio.substring(0, 5)} - {ag.fim.substring(0, 5)}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
                                   );
                                 })}
                               </td>
@@ -800,15 +909,29 @@ const Agenda = () => {
           >
 
             {/* Header with gradient accent */}
-            <div className="relative px-5 pt-[calc(env(safe-area-inset-top,24px)+16px)] pb-5 md:px-6 md:pt-5 md:pb-6 flex-shrink-0">
+            <div className="relative px-5 pt-[calc(env(safe-area-inset-top,24px)+16px)] pb-5 md:px-6 md:pt-5 md:pb-6">
               {/* Action buttons */}
               <div className="absolute top-[calc(env(safe-area-inset-top,16px)+16px)] right-4 md:top-5 md:right-5 flex items-center gap-1">
+                <button
+                  onClick={handleViewDetails}
+                  className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  title="Ver detalhes"
+                >
+                  <Eye size={18} />
+                </button>
                 <button
                   onClick={handleEditAgendamento}
                   className="p-2 rounded-full hover:bg-primary/10 transition-colors text-primary"
                   title="Editar agendamento"
                 >
                   <Pencil size={18} />
+                </button>
+                <button
+                  onClick={handleDeleteAgendamento}
+                  className="p-2 rounded-full hover:bg-destructive/10 transition-colors text-destructive"
+                  title="Excluir agendamento"
+                >
+                  <Trash2 size={18} />
                 </button>
                 <button
                   onClick={() => setSelectedAgendamento(null)}
@@ -834,10 +957,11 @@ const Agenda = () => {
                   const currentStatus = statusOptions.find(s => s.color === selectedAgendamento.color);
                   if (currentStatus) {
                     const StatusIcon = currentStatus.icon;
+                    const colorClass = currentStatus.color === "yellow" ? "text-status-yellow" : `text-status-${currentStatus.color}`;
                     return (
                       <div className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${currentStatus.bgColor}`}>
-                        <StatusIcon size={14} className={currentStatus.color === "yellow" ? "text-status-lilac" : `text-status-${currentStatus.color}`} />
-                        <span className={`text-xs font-semibold ${currentStatus.color === "yellow" ? "text-status-lilac" : `text-status-${currentStatus.color}`}`}>{currentStatus.label}</span>
+                        <StatusIcon size={14} className={colorClass} />
+                        <span className={`text-xs font-semibold ${colorClass}`}>{currentStatus.label}</span>
                       </div>
                     );
                   }
@@ -952,6 +1076,14 @@ const Agenda = () => {
         </div>,
         document.body
       )}
+
+      {/* Modal de Adicionar Agendamento */}
+      <AgendamentoFormModal
+        isOpen={showAgendamentoModal}
+        onClose={() => setShowAgendamentoModal(false)}
+        onSuccess={fetchAgendamentos}
+      />
+      </TooltipProvider>
     </Layout>
   );
 };

@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import { addDays, addWeeks, addMonths, format, parseISO } from "date-fns";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarMoeda } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -145,38 +146,7 @@ const Agendamentos = () => {
   const [compromissosPage, setCompromissosPage] = useState(1);
   const compromissosPerPage = 10;
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  // Handle edit param from URL (coming from Agenda page)
-  useEffect(() => {
-    const editId = searchParams.get("edit");
-    if (editId && agendamentos.length > 0) {
-      const agendamento = agendamentos.find(a => a.id === parseInt(editId));
-      if (agendamento) {
-        setEditingId(agendamento.id);
-        setFormData({
-          data_consulta: agendamento.data_consulta,
-          nome_paciente: agendamento.nome_paciente,
-          telefone: agendamento.telefone || "",
-          inicio: agendamento.inicio,
-          fim: agendamento.fim,
-          convenio: agendamento.convenio,
-          consulta: agendamento.consulta,
-          modalidade: agendamento.modalidade,
-          frequencia: agendamento.frequencia,
-          observacoes: agendamento.observacoes || "",
-          valor: formatarMoeda(agendamento.valor),
-        });
-        setShowModal(true);
-        // Clear the URL param
-        setSearchParams({});
-      }
-    }
-  }, [searchParams, agendamentos]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [agendamentosRes, conveniosRes, pacientesRes, compromissosRes] = await Promise.all([
         supabase.from("agendamentos").select("*").order("data_consulta", { ascending: true }).order("inicio", { ascending: true }),
@@ -200,7 +170,71 @@ const Agendamentos = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Handle edit and view params from URL (coming from Agenda page)
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    const viewId = searchParams.get("view");
+    
+    if (editId && agendamentos.length > 0) {
+      const agendamento = agendamentos.find(a => a.id === parseInt(editId));
+      if (agendamento) {
+        setEditingId(agendamento.id);
+        setFormData({
+          data_consulta: agendamento.data_consulta,
+          nome_paciente: agendamento.nome_paciente,
+          telefone: agendamento.telefone || "",
+          inicio: agendamento.inicio,
+          fim: agendamento.fim,
+          convenio: agendamento.convenio,
+          consulta: agendamento.consulta,
+          modalidade: agendamento.modalidade,
+          frequencia: agendamento.frequencia,
+          observacoes: agendamento.observacoes || "",
+          valor: formatarMoeda(agendamento.valor),
+        });
+        setShowModal(true);
+        // Clear the URL param
+        setSearchParams({});
+      }
+    }
+    
+    if (viewId && agendamentos.length > 0) {
+      const agendamento = agendamentos.find(a => a.id === parseInt(viewId));
+      if (agendamento) {
+        setViewingAgendamento(agendamento);
+        setShowDetailsModal(true);
+        // Clear the URL param
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, agendamentos]);
+
+
+  // Sync em tempo real: garante que mudanças feitas na Agenda (ex.: Não Desmarcado) reflitam aqui imediatamente
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel("agendamentos-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "agendamentos" },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchData]);
 
   const handlePacienteSelect = (nome: string) => {
     const paciente = pacientes.find((p) => p.nome_completo === nome);
@@ -254,25 +288,47 @@ const Agendamentos = () => {
     return compromissoConflitante || null;
   };
 
+  // Função para gerar datas recorrentes baseado na frequência
+  const gerarDatasRecorrentes = (dataInicial: string, frequencia: string): string[] => {
+    const datas: string[] = [dataInicial];
+    const dataBase = parseISO(dataInicial);
+
+    switch (frequencia) {
+      case "Semanal":
+        // 6 semanas consecutivas (total de 6 agendamentos incluindo o primeiro)
+        for (let i = 1; i < 6; i++) {
+          const novaData = addWeeks(dataBase, i);
+          datas.push(format(novaData, "yyyy-MM-dd"));
+        }
+        break;
+      case "Quinzenal":
+        // A cada 15 dias, por 6 ocorrências
+        for (let i = 1; i < 6; i++) {
+          const novaData = addDays(dataBase, i * 15);
+          datas.push(format(novaData, "yyyy-MM-dd"));
+        }
+        break;
+      case "Mensal":
+        // A cada mês, por 6 ocorrências
+        for (let i = 1; i < 6; i++) {
+          const novaData = addMonths(dataBase, i);
+          datas.push(format(novaData, "yyyy-MM-dd"));
+        }
+        break;
+      case "Única":
+      default:
+        // Apenas a data inicial
+        break;
+    }
+
+    return datas;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Verificar conflito com compromissos pessoais
-    const conflito = verificarConflitoCompromisso(
-      formData.data_consulta,
-      formData.inicio,
-      formData.fim,
-      editingId || undefined
-    );
-
-    if (conflito) {
-      toast.error(`Conflito com compromisso: "${conflito.nome}" (${conflito.inicio.substring(0, 5)} - ${conflito.fim.substring(0, 5)})`);
-      return;
-    }
-
     try {
-      const agendamentoData = {
-        data_consulta: formData.data_consulta,
+      const agendamentoBase = {
         nome_paciente: formData.nome_paciente,
         telefone: formData.telefone || null,
         inicio: formData.inicio,
@@ -286,21 +342,60 @@ const Agendamentos = () => {
       };
 
       if (editingId) {
+        // Para edição, verificar conflito apenas da data atual
+        const conflito = verificarConflitoCompromisso(
+          formData.data_consulta,
+          formData.inicio,
+          formData.fim,
+          editingId
+        );
+
+        if (conflito) {
+          toast.error(`Conflito com compromisso: "${conflito.nome}" (${conflito.inicio.substring(0, 5)} - ${conflito.fim.substring(0, 5)})`);
+          return;
+        }
+
         const { error } = await supabase
           .from("agendamentos")
-          .update(agendamentoData)
+          .update({ ...agendamentoBase, data_consulta: formData.data_consulta })
           .eq("id", editingId);
 
         if (error) throw error;
         toast.success("Agendamento atualizado com sucesso!");
       } else {
-        const { error } = await supabase.from("agendamentos").insert({
-          ...agendamentoData,
+        // Para novo agendamento, gerar datas recorrentes
+        const datasRecorrentes = gerarDatasRecorrentes(formData.data_consulta, formData.frequencia);
+        
+        // Verificar conflitos para todas as datas
+        const conflitos: string[] = [];
+        for (const data of datasRecorrentes) {
+          const conflito = verificarConflitoCompromisso(data, formData.inicio, formData.fim);
+          if (conflito) {
+            conflitos.push(`${format(parseISO(data), "dd/MM/yyyy")} - ${conflito.nome}`);
+          }
+        }
+
+        if (conflitos.length > 0) {
+          toast.error(`Conflitos encontrados:\n${conflitos.join("\n")}`);
+          return;
+        }
+
+        // Criar todos os agendamentos
+        const agendamentosParaInserir = datasRecorrentes.map((data) => ({
+          ...agendamentoBase,
+          data_consulta: data,
           user_id: user?.id,
-        });
+        }));
+
+        const { error } = await supabase.from("agendamentos").insert(agendamentosParaInserir);
 
         if (error) throw error;
-        toast.success("Agendamento cadastrado com sucesso!");
+        
+        if (datasRecorrentes.length > 1) {
+          toast.success(`${datasRecorrentes.length} agendamentos criados com sucesso!`);
+        } else {
+          toast.success("Agendamento cadastrado com sucesso!");
+        }
       }
 
       setShowModal(false);
@@ -1585,7 +1680,7 @@ const Agendamentos = () => {
                       Nome do Paciente
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.nome_paciente}
+                      {viewingAgendamento.nome_paciente || "Não informado"}
                     </div>
                   </div>
                   <div>
@@ -1604,7 +1699,7 @@ const Agendamentos = () => {
                       Horário de Início
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.inicio}
+                      {viewingAgendamento.inicio || "Não informado"}
                     </div>
                   </div>
                   <div>
@@ -1612,7 +1707,7 @@ const Agendamentos = () => {
                       Horário de Fim
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.fim}
+                      {viewingAgendamento.fim || "Não informado"}
                     </div>
                   </div>
                   <div>
@@ -1620,7 +1715,7 @@ const Agendamentos = () => {
                       Convênio
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.convenio}
+                      {viewingAgendamento.convenio || "Não informado"}
                     </div>
                   </div>
                 </div>
@@ -1631,7 +1726,7 @@ const Agendamentos = () => {
                       Tipo de Consulta
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.consulta}
+                      {viewingAgendamento.consulta || "Não informado"}
                     </div>
                   </div>
                   <div>
@@ -1643,7 +1738,7 @@ const Agendamentos = () => {
                         ? "bg-orange-500/10 border-orange-500/30 text-orange-500"
                         : "bg-muted/50 border-border text-foreground"
                     }`}>
-                      {viewingAgendamento.modalidade}
+                      {viewingAgendamento.modalidade || "Não informado"}
                     </div>
                   </div>
                   <div>
@@ -1651,7 +1746,7 @@ const Agendamentos = () => {
                       Frequência
                     </label>
                     <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
-                      {viewingAgendamento.frequencia}
+                      {viewingAgendamento.frequencia || "Não informado"}
                     </div>
                   </div>
                 </div>
@@ -1695,7 +1790,7 @@ const Agendamentos = () => {
                   Observações
                 </h4>
                 <div className="bg-muted/50 border border-border rounded-lg px-3 py-3 text-sm text-foreground min-h-[100px]">
-                  {viewingAgendamento.observacoes || "Sem observações"}
+                  {viewingAgendamento.observacoes || "Não informado"}
                 </div>
               </div>
             </div>
