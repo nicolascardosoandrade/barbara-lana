@@ -49,9 +49,12 @@ export function Sidebar() {
   }, [location.pathname, isMobile, isExpanded, closeSidebar]);
 
   const handleLinkClick = () => {
-    // No mobile, fecha a sidebar ao clicar em um link
-    if (isMobile) {
-      closeSidebar();
+    // No mobile, fecha a sidebar imediatamente ao clicar em um link
+    if (isMobile && isExpanded) {
+      // Usa setTimeout para garantir que a navegação ocorra primeiro
+      setTimeout(() => {
+        closeSidebar();
+      }, 50);
     }
   };
 

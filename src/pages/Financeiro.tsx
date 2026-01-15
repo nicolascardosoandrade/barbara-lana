@@ -124,7 +124,8 @@ const Financeiro = () => {
 
       setAgendamentos(data || []);
 
-      // Calculate summary
+      // Calculate summary based on status colors from Agenda/Agendamentos
+      // green = Agendado, blue = Atendido, lilac = Não Desmarcado, red = Cancelado
       let agendado = 0;
       let atendido = 0;
       let naoDesmarcado = 0;
@@ -138,7 +139,6 @@ const Financeiro = () => {
           case "blue":
             atendido += valor;
             break;
-          case "red":
           case "lilac":
             naoDesmarcado += valor;
             break;
@@ -356,21 +356,21 @@ const Financeiro = () => {
               <div className="bg-card rounded-xl shadow-card border border-border/50 p-3 sm:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs sm:text-sm text-muted-foreground">Não Desmarcado</span>
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-status-red/10 flex items-center justify-center">
-                    <TrendingDown size={14} className="text-status-red" />
+                  <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-status-lilac/10 flex items-center justify-center">
+                    <TrendingDown size={14} className="text-status-lilac" />
                   </div>
                 </div>
-                <div className="text-lg sm:text-2xl font-bold text-status-red">{formatarMoeda(resumo.naoDesmarcado)}</div>
+                <div className="text-lg sm:text-2xl font-bold text-status-lilac">{formatarMoeda(resumo.naoDesmarcado)}</div>
               </div>
 
               <div className="bg-card rounded-xl shadow-card border border-border/50 p-3 sm:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs sm:text-sm text-muted-foreground">Total Bruto</span>
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <DollarSign size={14} className="text-primary" />
+                  <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-status-red/10 flex items-center justify-center">
+                    <DollarSign size={14} className="text-status-red" />
                   </div>
                 </div>
-                <div className="text-lg sm:text-2xl font-bold text-primary">{formatarMoeda(resumo.totalSemDesconto)}</div>
+                <div className="text-lg sm:text-2xl font-bold text-status-red">{formatarMoeda(resumo.totalSemDesconto)}</div>
               </div>
             </div>
 

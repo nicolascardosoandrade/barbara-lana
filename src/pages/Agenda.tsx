@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarMoeda } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,7 +53,6 @@ const statusOptions = [
 
 const Agenda = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [compromissos, setCompromissos] = useState<CompromissoPessoal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,10 +62,16 @@ const Agenda = () => {
   const [selectedCompromisso, setSelectedCompromisso] = useState<CompromissoPessoal | null>(null);
   const [observacoes, setObservacoes] = useState("");
   const [showAgendamentoModal, setShowAgendamentoModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [viewingAgendamento, setViewingAgendamento] = useState<Agendamento | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAgendamento, setEditingAgendamento] = useState<Agendamento | null>(null);
 
   const handleEditAgendamento = () => {
     if (selectedAgendamento) {
-      navigate(`/agendamentos?edit=${selectedAgendamento.id}`);
+      setEditingAgendamento(selectedAgendamento);
+      setShowEditModal(true);
+      setSelectedAgendamento(null);
     }
   };
 
@@ -90,7 +95,57 @@ const Agenda = () => {
 
   const handleViewDetails = () => {
     if (selectedAgendamento) {
-      navigate(`/agendamentos?view=${selectedAgendamento.id}`);
+      setViewingAgendamento(selectedAgendamento);
+      setShowDetailsModal(true);
+      setSelectedAgendamento(null);
+    }
+  };
+
+  const handleEditFromDetails = () => {
+    if (viewingAgendamento) {
+      setEditingAgendamento(viewingAgendamento);
+      setShowEditModal(true);
+      setShowDetailsModal(false);
+      setViewingAgendamento(null);
+    }
+  };
+
+  const handleDeleteFromDetails = async () => {
+    if (!viewingAgendamento) return;
+    
+    if (!confirm("Deseja realmente excluir este agendamento?")) return;
+
+    try {
+      const { error } = await supabase.from("agendamentos").delete().eq("id", viewingAgendamento.id);
+
+      if (error) throw error;
+      toast.success("Agendamento excluído com sucesso!");
+      setShowDetailsModal(false);
+      setViewingAgendamento(null);
+      fetchAgendamentos();
+    } catch (error) {
+      console.error("Erro ao excluir agendamento:", error);
+      toast.error("Erro ao excluir agendamento");
+    }
+  };
+
+  const handleStatusChangeFromDetails = async (newColor: string) => {
+    if (!viewingAgendamento) return;
+
+    try {
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ color: newColor })
+        .eq("id", viewingAgendamento.id);
+
+      if (error) throw error;
+
+      toast.success("Status atualizado com sucesso!");
+      setViewingAgendamento({ ...viewingAgendamento, color: newColor });
+      fetchAgendamentos();
+    } catch (error) {
+      console.error("Erro ao atualizar status:", error);
+      toast.error("Erro ao atualizar status");
     }
   };
 
@@ -625,7 +680,7 @@ const Agenda = () => {
                                             width: itemWidth
                                           }}
                                         >
-                                          <span className={`text-xs font-medium truncate block ${ag.modalidade === "Online" ? "text-orange-400" : "text-white"}`}>
+                                          <span className={`text-xs font-medium truncate block ${ag.modalidade === "Online" ? "text-amber-300" : "text-white"}`}>
                                             {ag.nome_paciente}
                                           </span>
                                         </div>
@@ -647,59 +702,140 @@ const Agenda = () => {
                   </table>
                 </div>
 
-                {/* Mobile Cards - Week View */}
-                <div className="md:hidden divide-y divide-border/50">
-                  {weekDays.map((date, index) => {
-                    const isToday = date.toDateString() === new Date().toDateString();
-                    const dayAgendamentos = getAgendamentosForDate(date);
+                {/* Mobile Grid - Week View - Mesmo padrão do desktop */}
+                <div className="md:hidden overflow-x-auto">
+                  {/* Header com período da semana */}
+                  <div className="text-center text-sm text-muted-foreground mb-3 px-2">
+                    {format(weekDays[0], "dd")} - {format(weekDays[6], "dd")} de {format(weekDays[0], "MMMM", { locale: ptBR })}
+                  </div>
+                  
+                  <table className="w-full min-w-[360px] border-collapse table-fixed">
+                    {/* Header com dias da semana */}
+                    <thead>
+                      <tr className="border-b border-border/50 bg-card">
+                        <th className="w-[32px]"></th>
+                        {weekDays.map((date, index) => {
+                          const isToday = date.toDateString() === new Date().toDateString();
+                          return (
+                            <th
+                              key={index}
+                              className={`py-1.5 text-center border-l border-border/30 font-medium text-[10px] ${isToday ? "bg-primary/5 text-primary" : "text-foreground"}`}
+                            >
+                              <div className="text-[9px] uppercase">{dayNamesShort[index]}</div>
+                              <div className={`text-[10px] font-bold ${isToday ? "bg-primary text-primary-foreground w-4 h-4 rounded-full mx-auto flex items-center justify-center" : ""}`}>
+                                {date.getDate()}
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
                     
-                    return (
-                      <div key={index} className="p-3">
-                        <div className={`flex items-center gap-2 mb-2 ${isToday ? "text-primary" : "text-foreground"}`}>
-                          <div className={`text-sm font-semibold ${isToday ? "bg-primary text-primary-foreground px-2 py-0.5 rounded-full" : ""}`}>
-                            {dayNames[index]} {date.getDate()}
-                          </div>
-                          {dayAgendamentos.length > 0 && (
-                            <span className="text-xs text-muted-foreground">
-                              ({dayAgendamentos.length} {dayAgendamentos.length === 1 ? "consulta" : "consultas"})
-                            </span>
-                          )}
-                        </div>
+                    {/* Body com horários - slots de 30 minutos */}
+                    <tbody>
+                      {timeSlots.map((timeSlot) => {
+                        const [slotHour, slotMin] = timeSlot.split(":").map(Number);
+                        const showHour = slotMin === 0;
                         
-                        {dayAgendamentos.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">Sem agendamentos</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {dayAgendamentos.map((ag) => {
-                              const colors = statusColors[ag.color] || statusColors.green;
+                        return (
+                          <tr key={timeSlot} className="border-b border-border/20 h-6">
+                            {/* Coluna de horário - exibe 30 em 30 min */}
+                            <td className="w-[36px] py-0.5 text-[8px] text-muted-foreground font-medium text-right pr-1 align-top">
+                              {timeSlot}
+                            </td>
+                            
+                            {/* Células dos dias */}
+                            {weekDays.map((date, dayIndex) => {
+                              const slotAgendamentos = getAgendamentosForTimeSlot(date, timeSlot);
+                              const slotCompromissos = getCompromissosForTimeSlot(date, timeSlot);
+                              const isToday = date.toDateString() === new Date().toDateString();
+                              const isOccupiedByCompromisso = isSlotOccupiedByPreviousCompromisso(date, timeSlot);
+                              
                               return (
-                                <div
-                                  key={ag.id}
-                                  onClick={() => handleAgendamentoClick(ag)}
-                                  className={`p-3 rounded-lg border-l-4 ${colors.bg} ${colors.border} cursor-pointer active:scale-[0.98] transition-transform`}
+                                <td
+                                  key={`${timeSlot}-${dayIndex}`}
+                                  className={`p-0 border-l border-border/20 hover:bg-muted/30 transition-colors align-top relative ${isToday ? "bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                                 >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className={`text-xs font-medium ${colors.text}`}>
-                                      {ag.inicio} - {ag.fim}
-                                    </span>
-                                    {ag.modalidade === "Online" && (
-                                      <Video size={14} className="text-status-blue" />
-                                    )}
-                                  </div>
-                                  <div className={`text-sm font-medium ${ag.modalidade === "Online" ? "text-orange-400" : "text-foreground"}`}>
-                                    {ag.nome_paciente}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground mt-0.5">
-                                    {ag.convenio} • {ag.consulta}
-                                  </div>
-                                </div>
+                                  {/* Compromissos Pessoais - só renderiza se não está ocupado por compromisso anterior */}
+                                  {!isOccupiedByCompromisso && slotCompromissos.map((comp) => {
+                                    const slotSpan = calculateSlotSpan(comp.inicio, comp.fim);
+                                    // Cada slot = 24px de altura
+                                    const height = slotSpan * 24 - 2;
+                                    return (
+                                      <div
+                                        key={`comp-${comp.id}`}
+                                        onClick={() => handleCompromissoClick(comp)}
+                                        className="absolute left-0.5 right-0.5 px-0.5 py-0.5 bg-amber-500 cursor-pointer hover:opacity-80 transition-opacity rounded z-10"
+                                        style={{ height: `${height}px`, top: 1 }}
+                                      >
+                                        <span className="text-white text-[7px] font-medium truncate block leading-tight">
+                                          {comp.nome.split(" ")[0]}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                  
+                                  {/* Agendamentos que iniciam neste slot */}
+                                  {slotAgendamentos.map((ag) => {
+                                    const bgColor = ag.color === "green" ? "bg-status-green" :
+                                                    ag.color === "blue" ? "bg-status-blue" :
+                                                    ag.color === "red" ? "bg-status-red" :
+                                                    ag.color === "yellow" ? "bg-status-lilac" :
+                                                    ag.color === "lilac" ? "bg-status-lilac" : "bg-status-green";
+                                    
+                                    // Altura proporcional à duração real (mesma lógica do desktop, mas com 24px por slot)
+                                    const [inicioHour, inicioMin] = ag.inicio.substring(0, 5).split(":").map(Number);
+                                    const [fimHour, fimMin] = ag.fim.substring(0, 5).split(":").map(Number);
+                                    const inicioMinutes = inicioHour * 60 + inicioMin;
+                                    const fimMinutes = fimHour * 60 + fimMin;
+                                    const durationMinutes = fimMinutes - inicioMinutes;
+                                    // Cada slot de 30 min = 24px de altura, então 1 minuto = 24/30 px
+                                    const pixelsPerMinute = 24 / 30;
+                                    const height = Math.max(18, durationMinutes * pixelsPerMinute - 2);
+                                    
+                                    // Calcular offset vertical baseado no minuto de início dentro do slot de 30min
+                                    const slotStartMinutes = slotHour * 60 + slotMin;
+                                    const minutesOffset = inicioMinutes - slotStartMinutes;
+                                    const topOffset = 1 + (minutesOffset * pixelsPerMinute);
+                                    
+                                    // Para agendamentos que começam neste slot, calcular sobreposição
+                                    const agIndex = slotAgendamentos.findIndex(a => a.id === ag.id);
+                                    const totalItems = slotAgendamentos.length;
+                                    const gap = 1;
+                                    const totalGaps = (totalItems - 1) * gap;
+                                    const itemWidth = totalItems > 1 
+                                      ? `calc((100% - 4px - ${totalGaps}px) / ${totalItems})`
+                                      : "calc(100% - 4px)";
+                                    const leftOffset = totalItems > 1 
+                                      ? `calc(2px + ${agIndex} * ((100% - 4px - ${totalGaps}px) / ${totalItems} + ${gap}px))`
+                                      : "2px";
+                                    
+                                    return (
+                                      <div
+                                        key={ag.id}
+                                        onClick={() => handleAgendamentoClick(ag)}
+                                        className={`absolute px-0.5 py-0.5 ${bgColor} cursor-pointer hover:opacity-80 transition-opacity rounded z-10`}
+                                        style={{ 
+                                          height: `${height}px`, 
+                                          top: topOffset,
+                                          left: leftOffset,
+                                          width: itemWidth
+                                        }}
+                                      >
+                                        <span className={`text-[7px] font-medium block leading-tight overflow-hidden text-ellipsis whitespace-nowrap ${ag.modalidade === "Online" ? "text-amber-300" : "text-white"}`}>
+                                          {ag.nome_paciente}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </td>
                               );
                             })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </>
             )}
@@ -738,7 +874,7 @@ const Agenda = () => {
                               </div>
                               <div className="flex items-center gap-2 mb-1">
                                 <User size={14} className="text-muted-foreground md:w-4 md:h-4" />
-                                <span className={`font-medium text-sm md:text-base ${ag.modalidade === "Online" ? "text-orange-400" : "text-foreground"}`}>{ag.nome_paciente}</span>
+                                <span className={`font-medium text-sm md:text-base ${ag.modalidade === "Online" ? "text-amber-300" : "text-foreground"}`}>{ag.nome_paciente}</span>
                               </div>
                               <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
                                 {ag.modalidade === "Online" ? (
@@ -813,7 +949,7 @@ const Agenda = () => {
                                   ag.color === "yellow" 
                                     ? "bg-status-lilac/20 border-status-lilac" 
                                     : `bg-status-${ag.color}/20 border-status-${ag.color}`
-                                } ${ag.modalidade === "Online" ? "text-orange-400" : ag.color === "yellow" ? "text-status-lilac" : `text-status-${ag.color}`}`}
+                                } ${ag.modalidade === "Online" ? "text-amber-300" : ag.color === "yellow" ? "text-status-lilac" : `text-status-${ag.color}`}`}
                               >
                                 {ag.nome_paciente}
                               </div>
@@ -1083,6 +1219,215 @@ const Agenda = () => {
         onClose={() => setShowAgendamentoModal(false)}
         onSuccess={fetchAgendamentos}
       />
+
+      {/* Modal de Editar Agendamento */}
+      <AgendamentoFormModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingAgendamento(null);
+        }}
+        onSuccess={fetchAgendamentos}
+        editingId={editingAgendamento?.id}
+        initialData={editingAgendamento ? {
+          data_consulta: editingAgendamento.data_consulta,
+          nome_paciente: editingAgendamento.nome_paciente,
+          telefone: editingAgendamento.telefone || "",
+          inicio: editingAgendamento.inicio,
+          fim: editingAgendamento.fim,
+          convenio: editingAgendamento.convenio,
+          consulta: editingAgendamento.consulta,
+          modalidade: editingAgendamento.modalidade,
+          frequencia: editingAgendamento.frequencia,
+          observacoes: editingAgendamento.observacoes || "",
+          valor: formatarMoeda(editingAgendamento.valor),
+        } : null}
+      />
+
+      {/* Modal de Detalhes do Agendamento */}
+      {showDetailsModal && viewingAgendamento && createPortal(
+        <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-0 md:p-4 overflow-y-auto">
+          <div className="bg-card md:rounded-xl shadow-lg w-full h-full md:h-auto md:max-w-4xl md:my-8 animate-scale-in md:max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground px-4 md:px-6 py-4 pt-[calc(env(safe-area-inset-top,16px)+16px)] md:pt-4 md:rounded-t-xl flex items-center justify-between flex-shrink-0">
+              <h3 className="text-lg font-semibold uppercase tracking-wide">Detalhes do Agendamento</h3>
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setViewingAgendamento(null);
+                }}
+                className="p-2 hover:bg-primary-foreground/20 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 md:p-6 space-y-6 overflow-y-auto flex-1">
+              {/* Informações da Consulta */}
+              <div className="space-y-4">
+                <h4 className="text-base font-semibold text-primary border-b border-primary/30 pb-2">
+                  Informações da Consulta
+                </h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Data da Consulta
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {formatDate(viewingAgendamento.data_consulta)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Nome do Paciente
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.nome_paciente || "Não informado"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Telefone
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.telefone || "Não informado"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Horário de Início
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.inicio || "Não informado"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Horário de Fim
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.fim || "Não informado"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Convênio
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.convenio || "Não informado"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Tipo de Consulta
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.consulta || "Não informado"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Modalidade
+                    </label>
+                    <div className={`border rounded-lg px-3 py-2.5 text-sm font-medium ${
+                      viewingAgendamento.modalidade === "Online"
+                        ? "bg-orange-500/10 border-orange-500/30 text-orange-500"
+                        : "bg-muted/50 border-border text-foreground"
+                    }`}>
+                      {viewingAgendamento.modalidade || "Não informado"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Frequência
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {viewingAgendamento.frequencia || "Não informado"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Valor da Consulta
+                    </label>
+                    <div className="bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground">
+                      {formatarMoeda(viewingAgendamento.valor)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Status
+                    </label>
+                    <select
+                      value={viewingAgendamento.color}
+                      onChange={(e) => handleStatusChangeFromDetails(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white border-0 cursor-pointer ${
+                        viewingAgendamento.color === "green" ? "bg-status-green" :
+                        viewingAgendamento.color === "blue" ? "bg-status-blue" :
+                        viewingAgendamento.color === "red" ? "bg-status-red" :
+                        viewingAgendamento.color === "lilac" ? "bg-status-lilac" : "bg-status-green"
+                      }`}
+                    >
+                      <option value="green">Agendado</option>
+                      <option value="blue">Atendido</option>
+                      <option value="red">Cancelado</option>
+                      <option value="lilac">Não Desmarcado</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Observações */}
+              <div className="space-y-4">
+                <h4 className="text-base font-semibold text-primary border-b border-primary/30 pb-2">
+                  Observações
+                </h4>
+                <div className="bg-muted/50 border border-border rounded-lg px-3 py-3 text-sm text-foreground min-h-[100px]">
+                  {viewingAgendamento.observacoes || "Não informado"}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 md:gap-3 p-4 pb-[calc(env(safe-area-inset-bottom,16px)+16px)] md:pb-4 border-t border-border flex-shrink-0">
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setViewingAgendamento(null);
+                }}
+                className="px-3 md:px-6 py-1.5 md:py-2 text-sm md:text-base border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={handleDeleteFromDetails}
+                className="px-3 md:px-6 py-1.5 md:py-2 text-sm md:text-base border border-destructive text-destructive rounded-lg hover:bg-destructive/10 transition-colors flex items-center gap-1.5 md:gap-2"
+              >
+                <Trash2 size={16} className="md:w-[18px] md:h-[18px]" />
+                Excluir
+              </button>
+              <button
+                onClick={handleEditFromDetails}
+                className="px-3 md:px-6 py-1.5 md:py-2 text-sm md:text-base bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1.5 md:gap-2"
+              >
+                <Pencil size={16} className="md:w-[18px] md:h-[18px]" />
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       </TooltipProvider>
     </Layout>
   );

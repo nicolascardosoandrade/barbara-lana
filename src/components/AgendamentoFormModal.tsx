@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { addDays, addWeeks, addMonths, format, parseISO } from "date-fns";
 import { supabase, formatarMoeda } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { X } from "lucide-react";
+import { X, Search, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 // Função para formatar valor como moeda brasileira enquanto digita
@@ -108,6 +108,56 @@ export const AgendamentoFormModal = ({
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [compromissos, setCompromissos] = useState<CompromissoPessoal[]>([]);
   const [formData, setFormData] = useState<AgendamentoFormData>(defaultFormData);
+  
+  // Estados para os dropdowns de busca
+  const [pacienteSearchOpen, setPacienteSearchOpen] = useState(false);
+  const [pacienteSearchTerm, setPacienteSearchTerm] = useState("");
+  const [convenioSearchOpen, setConvenioSearchOpen] = useState(false);
+  const [convenioSearchTerm, setConvenioSearchTerm] = useState("");
+  
+  const pacienteDropdownRef = useRef<HTMLDivElement>(null);
+  const convenioDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Função para normalizar texto removendo acentos
+  const normalizeText = (text: string): string => {
+    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  };
+
+  // Pacientes filtrados e ordenados alfabeticamente
+  const filteredPacientes = useMemo(() => {
+    const searchNormalized = normalizeText(pacienteSearchTerm);
+    return pacientes
+      .filter((p) =>
+        normalizeText(p.nome_completo).includes(searchNormalized)
+      )
+      .sort((a, b) => a.nome_completo.localeCompare(b.nome_completo, "pt-BR"));
+  }, [pacientes, pacienteSearchTerm]);
+
+  // Convênios filtrados e ordenados
+  const filteredConvenios = useMemo(() => {
+    const searchNormalized = normalizeText(convenioSearchTerm);
+    return convenios
+      .filter((c) =>
+        normalizeText(c.nome_convenio).includes(searchNormalized)
+      )
+      .sort((a, b) => a.nome_convenio.localeCompare(b.nome_convenio, "pt-BR"));
+  }, [convenios, convenioSearchTerm]);
+
+  // Fechar dropdowns ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pacienteDropdownRef.current && !pacienteDropdownRef.current.contains(event.target as Node)) {
+        setPacienteSearchOpen(false);
+      }
+      if (convenioDropdownRef.current && !convenioDropdownRef.current.contains(event.target as Node)) {
+        setConvenioSearchOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
 
   useEffect(() => {
     if (isOpen) {
@@ -143,35 +193,80 @@ export const AgendamentoFormModal = ({
   const handlePacienteSelect = (nome: string) => {
     const paciente = pacientes.find((p) => p.nome_completo === nome);
     if (paciente) {
-      setFormData((prev) => ({
-        ...prev,
-        nome_paciente: paciente.nome_completo,
-        telefone: paciente.telefone,
-        convenio: paciente.convenio,
-      }));
-
       const conv = convenios.find((c) => c.nome_convenio === paciente.convenio);
-      if (conv) {
-        setFormData((prev) => ({
+      
+      setFormData((prev) => {
+        const novoFim = prev.inicio && conv ? calcularHorarioFim(prev.inicio, conv.duracao) : prev.fim;
+        return {
           ...prev,
-          consulta: conv.consulta,
-          valor: formatarMoeda(conv.valor),
-        }));
-      }
+          nome_paciente: paciente.nome_completo,
+          telefone: paciente.telefone,
+          convenio: paciente.convenio,
+          consulta: conv ? conv.consulta : prev.consulta,
+          valor: conv ? formatarMoeda(conv.valor) : prev.valor,
+          fim: novoFim || prev.fim,
+        };
+      });
+    }
+  };
+
+  // Função para calcular horário de fim baseado na duração do convênio
+  const calcularHorarioFim = (horarioInicio: string, duracao: string): string => {
+    if (!horarioInicio || !duracao) return "";
+    
+    try {
+      // Parse do horário de início (formato HH:mm)
+      const [horasInicio, minutosInicio] = horarioInicio.split(":").map(Number);
+      
+      // Parse da duração (formato HH:mm:ss ou HH:mm)
+      const duracaoParts = duracao.split(":");
+      const horasDuracao = parseInt(duracaoParts[0]) || 0;
+      const minutosDuracao = parseInt(duracaoParts[1]) || 0;
+      
+      // Calcular total de minutos
+      let totalMinutos = horasInicio * 60 + minutosInicio + horasDuracao * 60 + minutosDuracao;
+      
+      // Converter de volta para horas e minutos
+      const horasFim = Math.floor(totalMinutos / 60) % 24;
+      const minutosFim = totalMinutos % 60;
+      
+      return `${horasFim.toString().padStart(2, "0")}:${minutosFim.toString().padStart(2, "0")}`;
+    } catch (error) {
+      console.error("Erro ao calcular horário de fim:", error);
+      return "";
     }
   };
 
   const handleConvenioChange = (nomeConvenio: string) => {
     const conv = convenios.find((c) => c.nome_convenio === nomeConvenio);
     if (conv) {
-      setFormData((prev) => ({
-        ...prev,
-        convenio: nomeConvenio,
-        consulta: conv.consulta,
-        valor: formatarMoeda(conv.valor),
-      }));
+      setFormData((prev) => {
+        const novoFim = prev.inicio ? calcularHorarioFim(prev.inicio, conv.duracao) : prev.fim;
+        return {
+          ...prev,
+          convenio: nomeConvenio,
+          consulta: conv.consulta,
+          valor: formatarMoeda(conv.valor),
+          fim: novoFim || prev.fim,
+        };
+      });
     } else {
       setFormData((prev) => ({ ...prev, convenio: nomeConvenio }));
+    }
+  };
+
+  // Função para atualizar horário de início e recalcular fim automaticamente
+  const handleInicioChange = (novoInicio: string) => {
+    const conv = convenios.find((c) => c.nome_convenio === formData.convenio);
+    if (conv && novoInicio) {
+      const novoFim = calcularHorarioFim(novoInicio, conv.duracao);
+      setFormData((prev) => ({
+        ...prev,
+        inicio: novoInicio,
+        fim: novoFim || prev.fim,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, inicio: novoInicio }));
     }
   };
 
@@ -204,9 +299,9 @@ export const AgendamentoFormModal = ({
         }
         break;
       case "Quinzenal":
-        // A cada 15 dias, por 6 ocorrências
+        // A cada 2 semanas (14 dias), por 6 ocorrências - mantém o mesmo dia da semana
         for (let i = 1; i < 6; i++) {
-          const novaData = addDays(dataBase, i * 15);
+          const novaData = addWeeks(dataBase, i * 2);
           datas.push(format(novaData, "yyyy-MM-dd"));
         }
         break;
@@ -244,18 +339,6 @@ export const AgendamentoFormModal = ({
       };
 
       if (editingId) {
-        // Para edição, verificar conflito apenas da data atual
-        const conflito = verificarConflitoCompromisso(
-          formData.data_consulta,
-          formData.inicio,
-          formData.fim
-        );
-
-        if (conflito) {
-          toast.error(`Conflito com compromisso: "${conflito.nome}" (${conflito.inicio.substring(0, 5)} - ${conflito.fim.substring(0, 5)})`);
-          return;
-        }
-
         const { error } = await supabase
           .from("agendamentos")
           .update({ ...agendamentoBase, data_consulta: formData.data_consulta })
@@ -266,20 +349,6 @@ export const AgendamentoFormModal = ({
       } else {
         // Para novo agendamento, gerar datas recorrentes
         const datasRecorrentes = gerarDatasRecorrentes(formData.data_consulta, formData.frequencia);
-        
-        // Verificar conflitos para todas as datas
-        const conflitos: string[] = [];
-        for (const data of datasRecorrentes) {
-          const conflito = verificarConflitoCompromisso(data, formData.inicio, formData.fim);
-          if (conflito) {
-            conflitos.push(`${format(parseISO(data), "dd/MM/yyyy")} - ${conflito.nome}`);
-          }
-        }
-
-        if (conflitos.length > 0) {
-          toast.error(`Conflitos encontrados:\n${conflitos.join("\n")}`);
-          return;
-        }
 
         // Criar todos os agendamentos
         const agendamentosParaInserir = datasRecorrentes.map((data) => ({
@@ -346,7 +415,7 @@ export const AgendamentoFormModal = ({
                   type="time"
                   required
                   value={formData.inicio}
-                  onChange={(e) => setFormData({ ...formData, inicio: e.target.value })}
+                  onChange={(e) => handleInicioChange(e.target.value)}
                   className="form-input text-sm h-10"
                 />
               </div>
@@ -367,24 +436,73 @@ export const AgendamentoFormModal = ({
           <div>
             <h4 className="text-sm font-semibold text-foreground mb-3 md:mb-4">Paciente</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-              <div>
+              <div ref={pacienteDropdownRef} className="relative">
                 <label className="form-label text-xs">NOME DO PACIENTE <span className="text-destructive">*</span></label>
-                <select
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPacienteSearchOpen(!pacienteSearchOpen);
+                    setPacienteSearchTerm("");
+                  }}
+                  className="form-input text-sm h-10 w-full flex items-center justify-between text-left"
+                >
+                  <span className={formData.nome_paciente ? "text-foreground" : "text-muted-foreground"}>
+                    {formData.nome_paciente || "Procurar paciente..."}
+                  </span>
+                  <ChevronDown size={16} className="text-muted-foreground flex-shrink-0" />
+                </button>
+                {pacienteSearchOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-64 overflow-hidden">
+                    <div className="p-2 border-b border-border">
+                      <div className="relative">
+                        <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="Buscar paciente..."
+                          value={pacienteSearchTerm}
+                          onChange={(e) => setPacienteSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {filteredPacientes.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                          Nenhum paciente encontrado
+                        </div>
+                      ) : (
+                        filteredPacientes.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, nome_paciente: p.nome_completo });
+                              handlePacienteSelect(p.nome_completo);
+                              setPacienteSearchOpen(false);
+                              setPacienteSearchTerm("");
+                            }}
+                            className="w-full px-3 py-2 text-sm text-left hover:bg-accent flex items-center justify-between gap-2"
+                          >
+                            <span className="truncate">{p.nome_completo}</span>
+                            {formData.nome_paciente === p.nome_completo && (
+                              <Check size={16} className="text-primary flex-shrink-0" />
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* Hidden input for form validation */}
+                <input
+                  type="text"
                   required
                   value={formData.nome_paciente}
-                  onChange={(e) => {
-                    setFormData({ ...formData, nome_paciente: e.target.value });
-                    handlePacienteSelect(e.target.value);
-                  }}
-                  className="form-input text-sm h-10"
-                >
-                  <option value="">Procurar paciente...</option>
-                  {pacientes.map((p) => (
-                    <option key={p.id} value={p.nome_completo}>
-                      {p.nome_completo}
-                    </option>
-                  ))}
-                </select>
+                  onChange={() => {}}
+                  className="sr-only"
+                  tabIndex={-1}
+                />
               </div>
               <div>
                 <label className="form-label text-xs">TELEFONE</label>
@@ -400,26 +518,79 @@ export const AgendamentoFormModal = ({
             </div>
           </div>
 
+
           {/* Seção: Convênio e Tipo de Consulta */}
           <div>
             <h4 className="text-sm font-semibold text-foreground mb-3 md:mb-4">Convênio e Tipo de Consulta</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mb-3 md:mb-4">
-              <div>
+              <div ref={convenioDropdownRef} className="relative">
                 <label className="form-label text-xs">CONVÊNIO <span className="text-destructive">*</span></label>
-                <select
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConvenioSearchOpen(!convenioSearchOpen);
+                    setConvenioSearchTerm("");
+                  }}
+                  className="form-input text-sm h-10 w-full flex items-center justify-between text-left"
+                >
+                  <span className={formData.convenio ? "text-foreground" : "text-muted-foreground"}>
+                    {formData.convenio || "Selecionar convênio..."}
+                  </span>
+                  <ChevronDown size={16} className="text-muted-foreground flex-shrink-0" />
+                </button>
+                {convenioSearchOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-64 overflow-hidden">
+                    <div className="p-2 border-b border-border">
+                      <div className="relative">
+                        <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="Buscar convênio..."
+                          value={convenioSearchTerm}
+                          onChange={(e) => setConvenioSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {filteredConvenios.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                          Nenhum convênio encontrado
+                        </div>
+                      ) : (
+                        filteredConvenios.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              handleConvenioChange(c.nome_convenio);
+                              setConvenioSearchOpen(false);
+                              setConvenioSearchTerm("");
+                            }}
+                            className="w-full px-3 py-2 text-sm text-left hover:bg-accent flex items-center justify-between gap-2"
+                          >
+                            <span className="truncate">{c.nome_convenio}</span>
+                            {formData.convenio === c.nome_convenio && (
+                              <Check size={16} className="text-primary flex-shrink-0" />
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* Hidden input for form validation */}
+                <input
+                  type="text"
                   required
                   value={formData.convenio}
-                  onChange={(e) => handleConvenioChange(e.target.value)}
-                  className="form-input text-sm h-10"
-                >
-                  <option value="">Selecionar convênio...</option>
-                  {convenios.map((c) => (
-                    <option key={c.id} value={c.nome_convenio}>
-                      {c.nome_convenio}
-                    </option>
-                  ))}
-                </select>
+                  onChange={() => {}}
+                  className="sr-only"
+                  tabIndex={-1}
+                />
               </div>
+
               <div>
                 <label className="form-label text-xs">TIPO DE CONSULTA <span className="text-destructive">*</span></label>
                 <select
