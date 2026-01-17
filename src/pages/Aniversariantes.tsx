@@ -106,20 +106,29 @@ const Aniversariantes = () => {
   };
 
   const getDaysUntilBirthday = (dataNascimento: string) => {
+    // Normaliza a data de hoje para meia-noite (00:00:00)
     const today = new Date();
-    const nascimento = new Date(dataNascimento);
+    today.setHours(0, 0, 0, 0);
+    
+    // Normaliza a data de nascimento para evitar problemas de fuso horário
+    const nascimento = new Date(dataNascimento + "T00:00:00");
+    
+    // Cria a data do aniversário deste ano, também normalizada
     const thisYearBirthday = new Date(
       today.getFullYear(),
       nascimento.getMonth(),
-      nascimento.getDate()
+      nascimento.getDate(),
+      0, 0, 0, 0
     );
 
+    // Se o aniversário deste ano já passou, considera o próximo ano
     if (thisYearBirthday < today) {
       thisYearBirthday.setFullYear(today.getFullYear() + 1);
     }
 
+    // Calcula a diferença em dias usando Math.round para evitar erros de arredondamento
     const diffTime = thisYearBirthday.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
 
