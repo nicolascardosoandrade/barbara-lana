@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { User, Settings, LogOut, Moon, Sun, Save, X, Loader2, Trash2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { User, Settings, LogOut, Moon, Sun, Save, X, Loader2, Trash2, Upload, FileSpreadsheet, Users, Building2, Calendar } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/hooks/use-toast";
+import { useExcelImport } from "@/hooks/useExcelImport";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,11 @@ export function UserMenu() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { isImporting, importType, handleFileSelect } = useExcelImport();
+  
+  const pacientesInputRef = useRef<HTMLInputElement>(null);
+  const conveniosInputRef = useRef<HTMLInputElement>(null);
+  const agendamentosInputRef = useRef<HTMLInputElement>(null);
   
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -194,7 +200,7 @@ export function UserMenu() {
       </DropdownMenu>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="h-full w-full max-w-full max-h-full rounded-none sm:h-auto sm:w-auto sm:max-w-md sm:max-h-[400px] sm:rounded-lg overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DialogContent className="h-full w-full max-w-full max-h-full rounded-none sm:h-auto sm:w-auto sm:max-w-md sm:max-h-[600px] sm:rounded-lg overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Configurações</DialogTitle>
             <DialogDescription>
@@ -266,6 +272,87 @@ export function UserMenu() {
                   checked={theme === "dark"}
                   onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
                 />
+              </div>
+            </div>
+
+            {/* Import Data Section */}
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-4 w-4" />
+                <h3 className="text-sm font-medium">Importar Dados</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Importe dados de arquivos Excel (.xlsx) exportados pelo sistema.
+              </p>
+              
+              {/* Hidden file inputs */}
+              <input
+                ref={pacientesInputRef}
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, "pacientes")}
+              />
+              <input
+                ref={conveniosInputRef}
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, "convenios")}
+              />
+              <input
+                ref={agendamentosInputRef}
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e, "agendamentos")}
+              />
+
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => pacientesInputRef.current?.click()}
+                  disabled={isImporting}
+                >
+                  {isImporting && importType === "pacientes" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Users className="mr-2 h-4 w-4" />
+                  )}
+                  Importar Pacientes
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => conveniosInputRef.current?.click()}
+                  disabled={isImporting}
+                >
+                  {isImporting && importType === "convenios" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Building2 className="mr-2 h-4 w-4" />
+                  )}
+                  Importar Convênios
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => agendamentosInputRef.current?.click()}
+                  disabled={isImporting}
+                >
+                  {isImporting && importType === "agendamentos" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Calendar className="mr-2 h-4 w-4" />
+                  )}
+                  Importar Agendamentos
+                </Button>
               </div>
             </div>
 
