@@ -1045,41 +1045,46 @@ const Agenda = () => {
           >
 
             {/* Header with gradient accent */}
-            <div className="relative px-5 pt-[calc(env(safe-area-inset-top,24px)+16px)] pb-5 md:px-6 md:pt-5 md:pb-6">
-              {/* Action buttons */}
-              <div className="absolute top-[calc(env(safe-area-inset-top,16px)+16px)] right-4 md:top-5 md:right-5 flex items-center gap-1">
-                <button
-                  onClick={handleViewDetails}
-                  className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                  title="Ver detalhes"
-                >
-                  <Eye size={18} />
-                </button>
-                <button
-                  onClick={handleEditAgendamento}
-                  className="p-2 rounded-full hover:bg-primary/10 transition-colors text-primary"
-                  title="Editar agendamento"
-                >
-                  <Pencil size={18} />
-                </button>
-                <button
-                  onClick={handleDeleteAgendamento}
-                  className="p-2 rounded-full hover:bg-destructive/10 transition-colors text-destructive"
-                  title="Excluir agendamento"
-                >
-                  <Trash2 size={18} />
-                </button>
-                <button
-                  onClick={() => setSelectedAgendamento(null)}
-                  className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <X size={20} />
-                </button>
+            <div className="px-5 pt-[calc(env(safe-area-inset-top,24px)+16px)] pb-5 md:px-6 md:pt-5 md:pb-6">
+              {/* Top row with name and action buttons */}
+              <div className="flex items-start justify-between gap-3">
+                {/* Patient name - allows wrapping */}
+                <h2 className="text-xl md:text-2xl font-bold text-foreground mb-1 break-words min-w-0 flex-1">{selectedAgendamento.nome_paciente}</h2>
+                
+                {/* Action buttons - fixed width, no shrink */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={handleViewDetails}
+                    className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    title="Ver detalhes"
+                  >
+                    <Eye size={18} />
+                  </button>
+                  <button
+                    onClick={handleEditAgendamento}
+                    className="p-2 rounded-full hover:bg-primary/10 transition-colors text-primary"
+                    title="Editar agendamento"
+                  >
+                    <Pencil size={18} />
+                  </button>
+                  <button
+                    onClick={handleDeleteAgendamento}
+                    className="p-2 rounded-full hover:bg-destructive/10 transition-colors text-destructive"
+                    title="Excluir agendamento"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <button
+                    onClick={() => setSelectedAgendamento(null)}
+                    className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
               </div>
 
-              {/* Patient info */}
-              <div className="pr-24">
-                <h2 className="text-xl md:text-2xl font-bold text-foreground mb-1">{selectedAgendamento.nome_paciente}</h2>
+              {/* Patient info details */}
+              <div>
                 <p className="text-sm text-muted-foreground flex items-center gap-1.5">
                   <CalendarDays size={14} className="text-primary" />
                   <span className="capitalize">{formatDate(selectedAgendamento.data_consulta)}</span>
