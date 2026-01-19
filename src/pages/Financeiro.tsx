@@ -2,9 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarMoeda } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { DollarSign, TrendingUp, TrendingDown, Calendar, Settings, PieChart as PieChartIcon, BarChart3, LineChart, FileDown } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { DollarSign, TrendingUp, TrendingDown, Calendar, Settings, PieChart as PieChartIcon, BarChart3, LineChart } from "lucide-react";
 import { toast } from "sonner";
 import {
   BarChart,
@@ -188,91 +186,6 @@ const Financeiro = () => {
   const valorImposto = valorBarbara * (porcentagens.imposto / 100);
   const valorLiquido = valorBarbara - valorImposto;
 
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(124, 58, 237);
-    doc.text("Relatório Financeiro", pageWidth / 2, 20, { align: "center" });
-    
-    // Period
-    doc.setFontSize(12);
-    doc.setTextColor(100);
-    const formattedStart = new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR');
-    const formattedEnd = new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR');
-    doc.text(`Período: ${formattedStart} a ${formattedEnd}`, pageWidth / 2, 30, { align: "center" });
-    
-    // Summary section
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.text("Resumo Financeiro", 14, 45);
-    
-    autoTable(doc, {
-      startY: 50,
-      head: [["Descrição", "Valor"]],
-      body: [
-        ["Agendado", formatarMoeda(resumo.agendado)],
-        ["Atendido", formatarMoeda(resumo.atendido)],
-        ["Não Desmarcado", formatarMoeda(resumo.naoDesmarcado)],
-        ["Total Bruto", formatarMoeda(resumo.totalSemDesconto)],
-      ],
-      theme: "striped",
-      headStyles: { fillColor: [124, 58, 237] },
-    });
-    
-    // Financial breakdown
-    const breakdownY = (doc as any).lastAutoTable.finalY + 15;
-    doc.setFontSize(14);
-    doc.text("Distribuição Financeira", 14, breakdownY);
-    
-    autoTable(doc, {
-      startY: breakdownY + 5,
-      head: [["Descrição", "Valor"]],
-      body: [
-        ["Total Bruto", formatarMoeda(resumo.totalSemDesconto)],
-        [`Clínica (${porcentagens.clinica}%)`, `- ${formatarMoeda(valorClinica)}`],
-        ["Subtotal Barbara", formatarMoeda(valorBarbara)],
-        [`Impostos (${porcentagens.imposto}%)`, `- ${formatarMoeda(valorImposto)}`],
-        ["Valor Líquido", formatarMoeda(valorLiquido)],
-      ],
-      theme: "striped",
-      headStyles: { fillColor: [124, 58, 237] },
-    });
-    
-    // By Convenio
-    const convenioY = (doc as any).lastAutoTable.finalY + 15;
-    doc.setFontSize(14);
-    doc.text("Por Convênio", 14, convenioY);
-    
-    const convenioData = Object.entries(convenioStats)
-      .sort((a, b) => b[1].total - a[1].total)
-      .map(([convenio, stats]) => [
-        convenio,
-        `${stats.count} consulta${stats.count !== 1 ? "s" : ""}`,
-        formatarMoeda(stats.total),
-      ]);
-    
-    autoTable(doc, {
-      startY: convenioY + 5,
-      head: [["Convênio", "Consultas", "Total"]],
-      body: convenioData.length > 0 ? convenioData : [["Nenhum dado disponível", "", ""]],
-      theme: "striped",
-      headStyles: { fillColor: [124, 58, 237] },
-    });
-    
-    // Footer
-    const finalY = (doc as any).lastAutoTable.finalY + 15;
-    doc.setFontSize(10);
-    doc.setTextColor(150);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, finalY);
-    
-    // Save
-    doc.save(`relatorio-financeiro-${startDate}-${endDate}.pdf`);
-    toast.success("PDF exportado com sucesso!");
-  };
-
   // Group by convenio
   const convenioStats = agendamentos.reduce((acc, ag) => {
     if (!acc[ag.convenio]) {
@@ -376,25 +289,16 @@ const Financeiro = () => {
               <p className="text-xs sm:text-sm text-muted-foreground">Análise do período</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportPDF}
-              className="btn-outline flex items-center gap-2 text-sm py-2"
-            >
-              <FileDown size={16} />
-              <span className="hidden sm:inline">Exportar PDF</span>
-            </button>
-            <button
-              onClick={() => {
-                setTempPorcentagens(porcentagens);
-                setShowSettings(true);
-              }}
-              className="btn-outline flex items-center gap-2 text-sm py-2"
-            >
-              <Settings size={16} />
-              <span className="hidden sm:inline">Configurar</span>
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              setTempPorcentagens(porcentagens);
+              setShowSettings(true);
+            }}
+            className="btn-outline flex items-center gap-2 text-sm py-2"
+          >
+            <Settings size={16} />
+            <span className="hidden sm:inline">Configurar</span>
+          </button>
         </div>
 
         {/* Date Filter */}
