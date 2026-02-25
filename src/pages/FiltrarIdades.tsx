@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, calcularIdade, formatarTelefone } from "@/lib/supabase";
 import { Filter, Users, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useSearch, matchesSearch } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -39,6 +40,7 @@ const calcularIdadeDetalhada = (dataNascimento: string): string => {
 };
 
 const FiltrarIdades = () => {
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [loading, setLoading] = useState(false);
   const [idadeMin, setIdadeMin] = useState("");
@@ -47,7 +49,34 @@ const FiltrarIdades = () => {
   const [convenios, setConvenios] = useState<string[]>([]);
   const [filtered, setFiltered] = useState<Paciente[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [localSearchTerm, setLocalSearchTerm] = useState("");
   const itemsPerPage = 10;
+
+  // Registrar pesquisa contextual
+  const handleSearch = useCallback((query: string) => {
+    setLocalSearchTerm(query);
+    setCurrentPage(1);
+  }, []);
+
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar paciente por nome...",
+      onSearch: handleSearch,
+      enabled: true,
+    });
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch, handleSearch]);
+
+  // Sincronizar com searchQuery do contexto
+  useEffect(() => {
+    setLocalSearchTerm(searchQuery);
+  }, [searchQuery]);
+
+  // Filtrar resultados pela pesquisa
+  const searchFilteredResults = useMemo(() => {
+    if (!localSearchTerm.trim()) return filtered;
+    return filtered.filter((p) => matchesSearch(p.nome_completo, localSearchTerm));
+  }, [filtered, localSearchTerm]);
 
   useEffect(() => {
     fetchPacientes();
@@ -125,10 +154,10 @@ const FiltrarIdades = () => {
     XLSX.writeFile(workbook, `pacientes_filtrados_${new Date().toISOString().split("T")[0]}.xlsx`);
   };
 
-  // Pagination
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  // Pagination - usar searchFilteredResults em vez de filtered
+  const totalPages = Math.ceil(searchFilteredResults.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedData = searchFilteredResults.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <Layout title="Filtrar por Idades">
@@ -202,14 +231,17 @@ const FiltrarIdades = () => {
         </div>
 
         {/* Results */}
-        {filtered.length > 0 && (
+        {searchFilteredResults.length > 0 && (
           <div className="bg-card rounded-xl shadow-card border border-border/50 overflow-hidden">
             {/* Results Header */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 sm:p-4 border-b border-border/50 gap-2">
               <div className="flex items-center gap-2">
                 <Users size={18} className="text-primary" />
                 <span className="font-semibold text-sm sm:text-base">
-                  {filtered.length} paciente{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
+                  {searchFilteredResults.length} paciente{searchFilteredResults.length !== 1 ? "s" : ""} encontrado{searchFilteredResults.length !== 1 ? "s" : ""}
+                  {localSearchTerm && filtered.length !== searchFilteredResults.length && (
+                    <span className="text-muted-foreground ml-1">(de {filtered.length})</span>
+                  )}
                 </span>
               </div>
               <button
@@ -346,6 +378,16 @@ const FiltrarIdades = () => {
           </div>
         )}
 
+        {searchFilteredResults.length === 0 && filtered.length > 0 && localSearchTerm && (
+          <div className="bg-card rounded-xl shadow-card border border-border/50 p-8 sm:p-12 text-center">
+            <Users size={40} className="mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-base sm:text-lg font-semibold text-foreground mb-2">Nenhum resultado para "{localSearchTerm}"</h3>
+            <p className="text-sm text-muted-foreground">
+              Tente buscar por outro termo
+            </p>
+          </div>
+        )}
+
         {filtered.length === 0 && (idadeMin || idadeMax || convenioFilter) && !loading && (
           <div className="bg-card rounded-xl shadow-card border border-border/50 p-8 sm:p-12 text-center">
             <Users size={40} className="mx-auto text-muted-foreground mb-4" />
@@ -356,7 +398,7 @@ const FiltrarIdades = () => {
           </div>
         )}
 
-        {filtered.length === 0 && !idadeMin && !idadeMax && !convenioFilter && (
+        {filtered.length === 0 && !idadeMin && !idadeMax && !convenioFilter && !localSearchTerm && (
           <div className="bg-card rounded-xl shadow-card border border-border/50 p-8 sm:p-12 text-center">
             <Filter size={40} className="mx-auto text-primary/50 mb-4" />
             <h3 className="text-base sm:text-lg font-semibold text-foreground mb-2">Configure os filtros</h3>

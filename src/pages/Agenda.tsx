@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { createPortal } from "react-dom";
@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Clock, User, MapPin, Video, X, ThumbsUp, XCi
 import { toast } from "sonner";
 import { AgendamentoFormModal } from "@/components/AgendamentoFormModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface Agendamento {
   id: number;
@@ -66,6 +67,41 @@ const Agenda = () => {
   const [viewingAgendamento, setViewingAgendamento] = useState<Agendamento | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAgendamento, setEditingAgendamento] = useState<Agendamento | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar na agenda...",
+      onSearch: (query) => {
+        setSearchTerm(query);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o termo de busca quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
+
+  // Filtrar agendamentos baseado no termo de busca
+  const filteredAgendamentos = useMemo(() => {
+    if (!searchTerm.trim()) return agendamentos;
+    const searchLower = searchTerm.toLowerCase();
+    return agendamentos.filter((ag) =>
+      ag.nome_paciente.toLowerCase().includes(searchLower) ||
+      ag.convenio.toLowerCase().includes(searchLower) ||
+      ag.consulta.toLowerCase().includes(searchLower)
+    );
+  }, [agendamentos, searchTerm]);
 
   const handleEditAgendamento = () => {
     if (selectedAgendamento) {
@@ -149,6 +185,22 @@ const Agenda = () => {
     }
   };
 
+  // Bloquear scroll da página quando modal/popup estiver aberto
+  useEffect(() => {
+    const isAnyPopupOpen = selectedAgendamento || selectedCompromisso || showDetailsModal || showEditModal || showAgendamentoModal;
+    
+    if (isAnyPopupOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    
+    // Cleanup ao desmontar o componente
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedAgendamento, selectedCompromisso, showDetailsModal, showEditModal, showAgendamentoModal]);
+
   useEffect(() => {
     fetchAgendamentos();
   }, [currentDate]);
@@ -180,6 +232,14 @@ const Agenda = () => {
     };
   }, [user, currentDate]);
 
+  // Helper para formatar data local sem conversão UTC (evita deslocamento de timezone)
+  const formatLocalDateStr = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const fetchAgendamentos = async () => {
     try {
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -189,15 +249,15 @@ const Agenda = () => {
         supabase
           .from("agendamentos")
           .select("*")
-          .gte("data_consulta", startOfMonth.toISOString().split("T")[0])
-          .lte("data_consulta", endOfMonth.toISOString().split("T")[0])
+          .gte("data_consulta", formatLocalDateStr(startOfMonth))
+          .lte("data_consulta", formatLocalDateStr(endOfMonth))
           .order("data_consulta")
           .order("inicio"),
         supabase
           .from("compromissos_pessoais")
           .select("*")
-          .gte("data_compromisso", startOfMonth.toISOString().split("T")[0])
-          .lte("data_compromisso", endOfMonth.toISOString().split("T")[0])
+          .gte("data_compromisso", formatLocalDateStr(startOfMonth))
+          .lte("data_compromisso", formatLocalDateStr(endOfMonth))
           .order("data_compromisso")
           .order("inicio"),
       ]);
@@ -242,17 +302,17 @@ const Agenda = () => {
   };
 
   const getAgendamentosForDate = (date: Date) => {
-    const dateStr = date.toISOString().split("T")[0];
-    return agendamentos.filter((a) => a.data_consulta === dateStr);
+    const dateStr = formatLocalDateStr(date);
+    return filteredAgendamentos.filter((a) => a.data_consulta === dateStr);
   };
 
   const getCompromissosForDate = (date: Date) => {
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDateStr(date);
     return compromissos.filter((c) => c.data_compromisso === dateStr);
   };
 
   const getCompromissosForTimeSlot = (date: Date, timeSlot: string) => {
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDateStr(date);
     return compromissos.filter((c) => {
       if (c.data_compromisso !== dateStr) return false;
       const inicioFormatado = c.inicio.substring(0, 5);
@@ -334,7 +394,7 @@ const Agenda = () => {
         newAgendamentos.push({
           nome_paciente: selectedAgendamento.nome_paciente,
           telefone: selectedAgendamento.telefone,
-          data_consulta: newDate.toISOString().split("T")[0],
+          data_consulta: formatLocalDateStr(newDate),
           inicio: selectedAgendamento.inicio,
           fim: selectedAgendamento.fim,
           convenio: selectedAgendamento.convenio,
@@ -437,12 +497,12 @@ const Agenda = () => {
 
   // Retorna todos os agendamentos que começam dentro deste slot de 30min (slot: 15:00 → retorna agendamentos que começam entre 15:00 e 15:29)
   const getAgendamentosForTimeSlot = (date: Date, timeSlot: string) => {
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDateStr(date);
     const [slotHour, slotMin] = timeSlot.split(":").map(Number);
     const slotStartMinutes = slotHour * 60 + slotMin;
     const slotEndMinutes = slotStartMinutes + 30;
     
-    return agendamentos.filter((a) => {
+    return filteredAgendamentos.filter((a) => {
       if (a.data_consulta !== dateStr) return false;
       const [inicioHour, inicioMin] = a.inicio.substring(0, 5).split(":").map(Number);
       const inicioMinutes = inicioHour * 60 + inicioMin;
@@ -451,7 +511,7 @@ const Agenda = () => {
     });
   };
   const isSlotOccupiedByPreviousCompromisso = (date: Date, timeSlot: string) => {
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDateStr(date);
     const [slotHour, slotMin] = timeSlot.split(":").map(Number);
     const slotMinutes = slotHour * 60 + slotMin;
     
@@ -1111,19 +1171,19 @@ const Agenda = () => {
               </div>
 
               {/* Status Buttons */}
-              <div className="flex gap-3 md:gap-4 mt-5 justify-center overflow-x-auto pb-1 scrollbar-hide">
+              <div className="flex gap-2 md:gap-4 mt-5 justify-center pb-1">
                 {statusOptions.map((option) => {
                   const Icon = option.icon;
                   return (
                     <button
                       key={option.label}
                       onClick={() => handleStatusChange(option.color)}
-                      className="flex flex-col items-center gap-1.5 group flex-shrink-0"
+                      className="flex flex-col items-center gap-1 md:gap-1.5 group flex-shrink-0"
                     >
-                      <div className={`w-12 h-12 md:w-14 md:h-14 rounded-full ${option.iconBg} flex items-center justify-center text-white shadow-lg group-hover:scale-110 group-hover:shadow-xl active:scale-95 transition-all duration-200`}>
-                        <Icon size={22} className="md:w-6 md:h-6" />
+                      <div className={`w-10 h-10 md:w-14 md:h-14 rounded-full ${option.iconBg} flex items-center justify-center text-white shadow-lg group-hover:scale-110 group-hover:shadow-xl active:scale-95 transition-all duration-200`}>
+                        <Icon size={18} className="md:w-6 md:h-6" />
                       </div>
-                      <span className="text-[10px] md:text-xs font-medium text-muted-foreground whitespace-nowrap">{option.label}</span>
+                      <span className="text-[8px] md:text-xs font-medium text-muted-foreground text-center max-w-[52px] md:max-w-none leading-tight">{option.label}</span>
                     </button>
                   );
                 })}

@@ -108,16 +108,27 @@ export function useExcelImport() {
   };
 
   const parseStatus = (status: string): string => {
+    // Map exported status labels to their color codes
+    // Must match the statusColors in Agendamentos.tsx export
     const statusMap: Record<string, string> = {
-      "confirmado": "green",
-      "aguardando confirmação": "yellow",
+      "agendado": "green",
+      "atendido": "blue",
       "cancelado": "red",
-      "faltou": "gray",
+      "não desmarcado": "lilac",
+      "nao desmarcado": "lilac", // Handle without accent
+      // Legacy mappings for backwards compatibility
+      "confirmado": "green",
+      "aguardando confirmação": "green",
+      "aguardando confirmacao": "green",
+      "faltou": "red",
       "encaixe": "blue",
-      "remarcado": "orange",
-      "avaliação": "purple",
+      "remarcado": "green",
+      "avaliação": "blue",
+      "avaliacao": "blue",
     };
-    return statusMap[status?.toLowerCase().trim()] || "green";
+    
+    const normalizedStatus = status?.toLowerCase().trim() || "";
+    return statusMap[normalizedStatus] || "green";
   };
 
   const parseDuracao = (duracao: string): string => {
@@ -342,14 +353,22 @@ export function useExcelImport() {
         return;
       }
 
-      // Convert to array of objects
-      const dataRows = jsonData.slice(1).map((row) => {
-        const obj: Record<string, any> = {};
-        headers.forEach((header, index) => {
-          obj[header] = row[index];
+      // Convert to array of objects - preserve ALL rows with any data
+      const dataRows = jsonData.slice(1)
+        .filter((row) => {
+          // Keep row if it has at least one non-empty cell
+          return row && row.length > 0 && row.some((cell) => 
+            cell !== undefined && cell !== null && cell !== ""
+          );
+        })
+        .map((row) => {
+          const obj: Record<string, any> = {};
+          headers.forEach((header, index) => {
+            // Preserve the value even if empty string
+            obj[header] = row[index] !== undefined ? row[index] : "";
+          });
+          return obj;
         });
-        return obj;
-      }).filter((row) => Object.values(row).some((v) => v !== undefined && v !== ""));
 
       if (dataRows.length === 0) {
         toast.error("Arquivo vazio", {

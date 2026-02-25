@@ -99,7 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    // scope: 'local' garante que apenas este dispositivo faz logout,
+    // mantendo sessões ativas em outros dispositivos
+    await supabase.auth.signOut({ scope: 'local' });
     setProfile(null);
   };
 

@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DataPrefetchProvider } from "@/components/DataPrefetchProvider";
+import { SearchProvider } from "@/contexts/SearchContext";
 
 import Auth from "./pages/Auth";
 import Index from "./pages/Index";
@@ -43,20 +44,22 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <Routes>
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-                <Route path="/convenios" element={<ProtectedRoute><Convenios /></ProtectedRoute>} />
-                <Route path="/pacientes" element={<ProtectedRoute><Pacientes /></ProtectedRoute>} />
-                <Route path="/pacientes/:id" element={<ProtectedRoute><PacienteDetalhes /></ProtectedRoute>} />
-                <Route path="/agendamentos" element={<ProtectedRoute><Agendamentos /></ProtectedRoute>} />
-                <Route path="/agenda" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
-                <Route path="/filtrar-idades" element={<ProtectedRoute><FiltrarIdades /></ProtectedRoute>} />
-                <Route path="/aniversariantes" element={<ProtectedRoute><Aniversariantes /></ProtectedRoute>} />
-                <Route path="/anotacoes" element={<ProtectedRoute><Anotacoes /></ProtectedRoute>} />
-                <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <SearchProvider>
+                <Routes>
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+                  <Route path="/convenios" element={<ProtectedRoute><Convenios /></ProtectedRoute>} />
+                  <Route path="/pacientes" element={<ProtectedRoute><Pacientes /></ProtectedRoute>} />
+                  <Route path="/pacientes/:id" element={<ProtectedRoute><PacienteDetalhes /></ProtectedRoute>} />
+                  <Route path="/agendamentos" element={<ProtectedRoute><Agendamentos /></ProtectedRoute>} />
+                  <Route path="/agenda" element={<ProtectedRoute><Agenda /></ProtectedRoute>} />
+                  <Route path="/filtrar-idades" element={<ProtectedRoute><FiltrarIdades /></ProtectedRoute>} />
+                  <Route path="/aniversariantes" element={<ProtectedRoute><Aniversariantes /></ProtectedRoute>} />
+                  <Route path="/anotacoes" element={<ProtectedRoute><Anotacoes /></ProtectedRoute>} />
+                  <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </SearchProvider>
             </BrowserRouter>
           </TooltipProvider>
         </DataPrefetchProvider>

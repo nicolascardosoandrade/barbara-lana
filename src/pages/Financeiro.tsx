@@ -1,8 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarMoeda } from "@/lib/supabase";
+import { useSearch, matchesSearch } from "@/contexts/SearchContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { DollarSign, TrendingUp, TrendingDown, Calendar, Settings, PieChart as PieChartIcon, BarChart3, LineChart } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Calendar, Settings, PieChart as PieChartIcon, BarChart3, LineChart, FileDown } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import {
   BarChart,
@@ -45,6 +48,7 @@ interface Porcentagens {
 
 const Financeiro = () => {
   const { user } = useAuth();
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
   const [loading, setLoading] = useState(true);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [resumo, setResumo] = useState<Resumo>({
@@ -57,26 +61,78 @@ const Financeiro = () => {
     clinica: 45,
     imposto: 6,
   });
+  // Helper para formatar data local sem conversão UTC
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
-    date.setDate(1);
-    return date.toISOString().split("T")[0];
+    date.setDate(1); // Primeiro dia do mês
+    return formatLocalDate(date);
   });
   const [endDate, setEndDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() + 1);
-    date.setDate(0);
-    return date.toISOString().split("T")[0];
+    date.setDate(0); // Último dia do mês atual
+    return formatLocalDate(date);
   });
   const [showSettings, setShowSettings] = useState(false);
   const [tempPorcentagens, setTempPorcentagens] = useState(porcentagens);
   const [chartPeriod, setChartPeriod] = useState<"dia" | "semana" | "mes">("dia");
+  const [localSearchTerm, setLocalSearchTerm] = useState("");
 
   const COLORS = ["#22c55e", "#3b82f6", "#ef4444", "#a855f7", "#f59e0b", "#06b6d4"];
+
+  // Registrar pesquisa contextual
+  const handleSearch = useCallback((query: string) => {
+    setLocalSearchTerm(query);
+  }, []);
+
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar por paciente ou convênio...",
+      onSearch: handleSearch,
+      enabled: true,
+    });
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch, handleSearch]);
+
+  // Sincronizar com searchQuery do contexto
+  useEffect(() => {
+    setLocalSearchTerm(searchQuery);
+  }, [searchQuery]);
+
+  // Filtrar agendamentos pela pesquisa
+  const filteredAgendamentos = useMemo(() => {
+    if (!localSearchTerm.trim()) return agendamentos;
+    return agendamentos.filter(
+      (ag) =>
+        matchesSearch(ag.nome_paciente, localSearchTerm) ||
+        matchesSearch(ag.convenio, localSearchTerm)
+    );
+  }, [agendamentos, localSearchTerm]);
 
   useEffect(() => {
     fetchPorcentagens();
   }, []);
+
+  // Bloquear scroll da página quando modal estiver aberto
+  useEffect(() => {
+    if (showSettings) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    
+    // Cleanup ao desmontar o componente
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showSettings]);
 
   useEffect(() => {
     fetchFinanceiro();
@@ -186,21 +242,111 @@ const Financeiro = () => {
   const valorImposto = valorBarbara * (porcentagens.imposto / 100);
   const valorLiquido = valorBarbara - valorImposto;
 
-  // Group by convenio
-  const convenioStats = agendamentos.reduce((acc, ag) => {
-    if (!acc[ag.convenio]) {
-      acc[ag.convenio] = { total: 0, count: 0 };
-    }
-    acc[ag.convenio].total += parseFloat(String(ag.valor)) || 0;
-    acc[ag.convenio].count += 1;
-    return acc;
-  }, {} as Record<string, { total: number; count: number }>);
+  // Função para exportar PDF
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(40, 40, 40);
+    doc.text("Relatório Financeiro", pageWidth / 2, 20, { align: "center" });
+    
+    // Período
+    doc.setFontSize(11);
+    doc.setTextColor(100, 100, 100);
+    const formattedStartDate = new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR');
+    const formattedEndDate = new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR');
+    doc.text(`Período: ${formattedStartDate} a ${formattedEndDate}`, pageWidth / 2, 28, { align: "center" });
+    
+    // Data de geração
+    doc.setFontSize(9);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, pageWidth / 2, 35, { align: "center" });
 
-  // Chart data processing
+    // Resumo Financeiro
+    doc.setFontSize(14);
+    doc.setTextColor(40, 40, 40);
+    doc.text("Resumo Financeiro", 14, 50);
+    
+    autoTable(doc, {
+      startY: 55,
+      head: [["Descrição", "Valor"]],
+      body: [
+        ["Agendado", formatarMoeda(resumo.agendado)],
+        ["Atendido", formatarMoeda(resumo.atendido)],
+        ["Não Desmarcado", formatarMoeda(resumo.naoDesmarcado)],
+        ["Total Bruto", formatarMoeda(resumo.totalSemDesconto)],
+      ],
+      theme: "striped",
+      headStyles: { fillColor: [99, 102, 241] },
+      styles: { fontSize: 10 },
+    });
+
+    // Distribuição Financeira
+    const afterResumo = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 100;
+    doc.setFontSize(14);
+    doc.text("Distribuição Financeira", 14, afterResumo + 15);
+    
+    autoTable(doc, {
+      startY: afterResumo + 20,
+      head: [["Descrição", "Valor"]],
+      body: [
+        ["Total Bruto", formatarMoeda(resumo.totalSemDesconto)],
+        [`Clínica (${porcentagens.clinica}%)`, `- ${formatarMoeda(valorClinica)}`],
+        ["Subtotal Barbara", formatarMoeda(valorBarbara)],
+        [`Impostos (${porcentagens.imposto}%)`, `- ${formatarMoeda(valorImposto)}`],
+        ["Valor Líquido", formatarMoeda(valorLiquido)],
+      ],
+      theme: "striped",
+      headStyles: { fillColor: [99, 102, 241] },
+      styles: { fontSize: 10 },
+    });
+
+    // Por Convênio
+    const afterDistribuicao = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || 150;
+    const convenioEntries = Object.entries(convenioStats).sort((a, b) => b[1].total - a[1].total);
+    
+    if (convenioEntries.length > 0) {
+      doc.setFontSize(14);
+      doc.text("Por Convênio", 14, afterDistribuicao + 15);
+      
+      autoTable(doc, {
+        startY: afterDistribuicao + 20,
+        head: [["Convênio", "Consultas", "Valor Total"]],
+        body: convenioEntries.map(([convenio, stats]) => [
+          convenio,
+          stats.count.toString(),
+          formatarMoeda(stats.total),
+        ]),
+        theme: "striped",
+        headStyles: { fillColor: [99, 102, 241] },
+        styles: { fontSize: 10 },
+      });
+    }
+
+    // Salvar PDF
+    const fileName = `relatorio-financeiro-${startDate}-a-${endDate}.pdf`;
+    doc.save(fileName);
+    toast.success("PDF exportado com sucesso!");
+  };
+
+  // Group by convenio - usar filteredAgendamentos
+  const convenioStats = useMemo(() => {
+    return filteredAgendamentos.reduce((acc, ag) => {
+      if (!acc[ag.convenio]) {
+        acc[ag.convenio] = { total: 0, count: 0 };
+      }
+      acc[ag.convenio].total += parseFloat(String(ag.valor)) || 0;
+      acc[ag.convenio].count += 1;
+      return acc;
+    }, {} as Record<string, { total: number; count: number }>);
+  }, [filteredAgendamentos]);
+
+  // Chart data processing - usar filteredAgendamentos
   const faturamentoData = useMemo(() => {
     const grouped: Record<string, number> = {};
     
-    agendamentos.forEach((ag) => {
+    filteredAgendamentos.forEach((ag) => {
       const date = new Date(ag.data_consulta + 'T00:00:00');
       let key: string;
       
@@ -217,12 +363,12 @@ const Financeiro = () => {
     });
     
     return Object.entries(grouped).map(([name, valor]) => ({ name, valor }));
-  }, [agendamentos, chartPeriod]);
+  }, [filteredAgendamentos, chartPeriod]);
 
   const statusData = useMemo(() => {
     const stats = { Agendado: 0, Atendido: 0, "Não Compareceu": 0, Desmarcado: 0 };
     
-    agendamentos.forEach((ag) => {
+    filteredAgendamentos.forEach((ag) => {
       switch (ag.color) {
         case "green":
           stats.Agendado += 1;
@@ -242,7 +388,7 @@ const Financeiro = () => {
     return Object.entries(stats)
       .filter(([_, value]) => value > 0)
       .map(([name, value]) => ({ name, value }));
-  }, [agendamentos]);
+  }, [filteredAgendamentos]);
 
   const convenioChartData = useMemo(() => {
     return Object.entries(convenioStats)
@@ -254,7 +400,7 @@ const Financeiro = () => {
   const tendenciaData = useMemo(() => {
     const grouped: Record<string, number> = {};
     
-    agendamentos.forEach((ag) => {
+    filteredAgendamentos.forEach((ag) => {
       const date = new Date(ag.data_consulta + 'T00:00:00');
       let key: string;
       
@@ -273,9 +419,10 @@ const Financeiro = () => {
     });
     
     return Object.entries(grouped).map(([name, valor]) => ({ name, valor }));
-  }, [agendamentos, chartPeriod]);
+  }, [filteredAgendamentos, chartPeriod]);
 
   return (
+    <>
     <Layout title="Financeiro">
       <div className="max-w-7xl mx-auto px-2 sm:px-0">
         {/* Header */}
@@ -289,16 +436,25 @@ const Financeiro = () => {
               <p className="text-xs sm:text-sm text-muted-foreground">Análise do período</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setTempPorcentagens(porcentagens);
-              setShowSettings(true);
-            }}
-            className="btn-outline flex items-center gap-2 text-sm py-2"
-          >
-            <Settings size={16} />
-            <span className="hidden sm:inline">Configurar</span>
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportPDF}
+              className="btn-outline flex items-center gap-2 text-sm py-2"
+            >
+              <FileDown size={16} />
+              <span className="hidden sm:inline">Exportar PDF</span>
+            </button>
+            <button
+              onClick={() => {
+                setTempPorcentagens(porcentagens);
+                setShowSettings(true);
+              }}
+              className="btn-outline flex items-center gap-2 text-sm py-2"
+            >
+              <Settings size={16} />
+              <span className="hidden sm:inline">Configurar</span>
+            </button>
+          </div>
         </div>
 
         {/* Date Filter */}
@@ -627,67 +783,69 @@ const Financeiro = () => {
         )}
       </div>
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-foreground/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card rounded-xl shadow-lg w-full max-w-md animate-scale-in">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h3 className="text-lg font-semibold">Configurar Porcentagens</h3>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-              >
-                ×
-              </button>
+    </Layout>
+
+    {/* Settings Modal - fora do Layout para sobrepor toda a interface */}
+    {showSettings && (
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="bg-card rounded-xl shadow-lg w-full max-w-md animate-scale-in">
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <h3 className="text-lg font-semibold">Configurar Porcentagens</h3>
+            <button
+              onClick={() => setShowSettings(false)}
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+            >
+              ×
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="form-label">Porcentagem da Clínica (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={tempPorcentagens.clinica}
+                onChange={(e) =>
+                  setTempPorcentagens((prev) => ({
+                    ...prev,
+                    clinica: parseFloat(e.target.value) || 0,
+                  }))
+                }
+                className="form-input"
+              />
             </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="form-label">Porcentagem da Clínica (%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={tempPorcentagens.clinica}
-                  onChange={(e) =>
-                    setTempPorcentagens((prev) => ({
-                      ...prev,
-                      clinica: parseFloat(e.target.value) || 0,
-                    }))
-                  }
-                  className="form-input"
-                />
-              </div>
-              <div>
-                <label className="form-label">Porcentagem de Impostos (%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={tempPorcentagens.imposto}
-                  onChange={(e) =>
-                    setTempPorcentagens((prev) => ({
-                      ...prev,
-                      imposto: parseFloat(e.target.value) || 0,
-                    }))
-                  }
-                  className="form-input"
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button onClick={() => setShowSettings(false)} className="btn-secondary flex-1">
-                  Cancelar
-                </button>
-                <button onClick={handleSavePorcentagens} className="btn-primary flex-1">
-                  Salvar
-                </button>
-              </div>
+            <div>
+              <label className="form-label">Porcentagem de Impostos (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={tempPorcentagens.imposto}
+                onChange={(e) =>
+                  setTempPorcentagens((prev) => ({
+                    ...prev,
+                    imposto: parseFloat(e.target.value) || 0,
+                  }))
+                }
+                className="form-input"
+              />
+            </div>
+            <div className="flex gap-3 pt-4">
+              <button onClick={() => setShowSettings(false)} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+              <button onClick={handleSavePorcentagens} className="btn-primary flex-1">
+                Salvar
+              </button>
             </div>
           </div>
         </div>
-      )}
-    </Layout>
+      </div>
+    )}
+    </>
   );
 };
 

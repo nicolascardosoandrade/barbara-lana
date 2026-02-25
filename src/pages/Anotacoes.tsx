@@ -1,17 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Trash2, FileText, Calendar, CheckCircle2, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogPortal,
-  DialogOverlay,
-} from "@/components/ui/dialog";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface Tarefa {
   id: number;
@@ -26,11 +19,56 @@ const Anotacoes = () => {
   const [loading, setLoading] = useState(true);
   const [newDescricao, setNewDescricao] = useState("");
   const [newDataVencimento, setNewDataVencimento] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   
   // Edit state
   const [editingTarefa, setEditingTarefa] = useState<Tarefa | null>(null);
   const [editDescricao, setEditDescricao] = useState("");
   const [editDataVencimento, setEditDataVencimento] = useState("");
+
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Scroll lock when modal is open
+  useEffect(() => {
+    if (editingTarefa) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [editingTarefa]);
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar anotação...",
+      onSearch: (query) => {
+        setSearchTerm(query);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o termo de busca quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
+
+  // Filtrar tarefas baseado no termo de busca
+  const filteredTarefas = useMemo(() => {
+    if (!searchTerm.trim()) return tarefas;
+    const searchLower = searchTerm.toLowerCase();
+    return tarefas.filter((tarefa) =>
+      tarefa.descricao.toLowerCase().includes(searchLower)
+    );
+  }, [tarefas, searchTerm]);
 
   useEffect(() => {
     fetchTarefas();
@@ -193,157 +231,167 @@ const Anotacoes = () => {
     return dateStr === todayBrasilia;
   };
 
-  // Group tasks by status
-  const overdueTasks = tarefas.filter((t) => t.data_vencimento && isOverdue(t.data_vencimento));
-  const todayTasks = tarefas.filter((t) => t.data_vencimento && isToday(t.data_vencimento));
-  const upcomingTasks = tarefas.filter(
+  // Group tasks by status (using filteredTarefas for search)
+  const overdueTasks = filteredTarefas.filter((t) => t.data_vencimento && isOverdue(t.data_vencimento));
+  const todayTasks = filteredTarefas.filter((t) => t.data_vencimento && isToday(t.data_vencimento));
+  const upcomingTasks = filteredTarefas.filter(
     (t) => t.data_vencimento && !isOverdue(t.data_vencimento) && !isToday(t.data_vencimento)
   );
 
   return (
-    <Layout title="Anotações da Barbara">
-      <div className="max-w-4xl mx-auto px-2 sm:px-0">
-        <div className="flex items-center gap-3 mb-4 md:mb-6">
-          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center">
-            <FileText className="text-primary" size={20} />
-          </div>
-          <div>
-            <h2 className="text-lg md:text-2xl font-bold text-foreground">Anotações</h2>
-            <p className="text-xs md:text-sm text-muted-foreground">Gerencie suas tarefas e lembretes</p>
-          </div>
-        </div>
-
-        {/* Add Task Form */}
-        <div className="bg-card rounded-xl shadow-card border border-border/50 p-4 md:p-6 mb-4 md:mb-6">
-          <h3 className="font-semibold text-foreground mb-3 md:mb-4 flex items-center gap-2 text-sm md:text-base">
-            <Plus size={18} className="text-primary" />
-            Nova Tarefa
-          </h3>
-          <form onSubmit={handleAddTarefa} className="flex flex-col gap-3 md:flex-row md:gap-4">
-            <div className="flex-1">
-              <input
-                type="text"
-                value={newDescricao}
-                onChange={(e) => setNewDescricao(e.target.value)}
-                placeholder="Descreva a tarefa..."
-                className="form-input text-sm"
-              />
+    <>
+      <Layout title="Anotações da Barbara">
+        <div className="max-w-4xl mx-auto px-2 sm:px-0">
+          <div className="flex items-center gap-3 mb-4 md:mb-6">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <FileText className="text-primary" size={20} />
             </div>
-            <div className="flex gap-2 md:gap-4">
-              <div className="flex-1 md:w-48 md:flex-none">
+            <div>
+              <h2 className="text-lg md:text-2xl font-bold text-foreground">Anotações</h2>
+              <p className="text-xs md:text-sm text-muted-foreground">Gerencie suas tarefas e lembretes</p>
+            </div>
+          </div>
+
+          {/* Add Task Form */}
+          <div className="bg-card rounded-xl shadow-card border border-border/50 p-4 md:p-6 mb-4 md:mb-6">
+            <h3 className="font-semibold text-foreground mb-3 md:mb-4 flex items-center gap-2 text-sm md:text-base">
+              <Plus size={18} className="text-primary" />
+              Nova Tarefa
+            </h3>
+            <form onSubmit={handleAddTarefa} className="flex flex-col gap-3 md:flex-row md:gap-4">
+              <div className="flex-1">
                 <input
-                  type="date"
-                  value={newDataVencimento}
-                  onChange={(e) => setNewDataVencimento(e.target.value)}
+                  type="text"
+                  value={newDescricao}
+                  onChange={(e) => setNewDescricao(e.target.value)}
+                  placeholder="Descreva a tarefa..."
                   className="form-input text-sm"
                 />
               </div>
-              <button type="submit" className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap text-sm px-4">
-                <Plus size={16} />
-                <span className="hidden sm:inline">Adicionar</span>
+              <div className="flex gap-2 md:gap-4">
+                <div className="flex-1 md:w-48 md:flex-none">
+                  <input
+                    type="date"
+                    value={newDataVencimento}
+                    onChange={(e) => setNewDataVencimento(e.target.value)}
+                    className="form-input text-sm"
+                  />
+                </div>
+                <button type="submit" className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap text-sm px-4">
+                  <Plus size={16} />
+                  <span className="hidden sm:inline">Adicionar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center h-64 text-muted-foreground">
+              Carregando...
+            </div>
+          ) : tarefas.length === 0 ? (
+            <div className="bg-card rounded-xl shadow-card border border-border/50 p-8 md:p-12 text-center">
+              <CheckCircle2 size={40} className="mx-auto text-status-green mb-4" />
+              <h3 className="text-base md:text-lg font-semibold text-foreground mb-2">Tudo em dia!</h3>
+              <p className="text-sm text-muted-foreground">
+                Nenhuma tarefa pendente. Adicione uma nova tarefa acima.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Overdue Tasks */}
+              {overdueTasks.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-destructive mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-destructive" />
+                    Atrasadas ({overdueTasks.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {overdueTasks.map((tarefa) => (
+                      <TaskCard
+                        key={tarefa.id}
+                        tarefa={tarefa}
+                        onDelete={handleDeleteTarefa}
+                        onEdit={handleEditTarefa}
+                        formatDate={formatDate}
+                        formatDateTime={formatDateTime}
+                        variant="overdue"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Today's Tasks */}
+              {todayTasks.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-status-yellow mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-status-yellow" />
+                    Para Hoje ({todayTasks.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {todayTasks.map((tarefa) => (
+                      <TaskCard
+                        key={tarefa.id}
+                        tarefa={tarefa}
+                        onDelete={handleDeleteTarefa}
+                        onEdit={handleEditTarefa}
+                        formatDate={formatDate}
+                        formatDateTime={formatDateTime}
+                        variant="today"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Upcoming Tasks */}
+              {upcomingTasks.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    Próximas ({upcomingTasks.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {upcomingTasks.map((tarefa) => (
+                      <TaskCard
+                        key={tarefa.id}
+                        tarefa={tarefa}
+                        onDelete={handleDeleteTarefa}
+                        onEdit={handleEditTarefa}
+                        formatDate={formatDate}
+                        formatDateTime={formatDateTime}
+                        variant="upcoming"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Layout>
+
+      {/* Edit Modal - Outside Layout for proper overlay */}
+      {editingTarefa && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-background w-full h-full sm:w-full sm:max-w-md sm:h-auto sm:max-h-[85vh] sm:rounded-lg flex flex-col border shadow-lg overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b">
+              <div className="flex items-center gap-2">
+                <Pencil size={20} className="text-primary" />
+                <h2 className="text-lg font-semibold">Editar Tarefa</h2>
+              </div>
+              <button
+                onClick={() => setEditingTarefa(null)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X size={20} />
               </button>
             </div>
-          </form>
-        </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center h-64 text-muted-foreground">
-            Carregando...
-          </div>
-        ) : tarefas.length === 0 ? (
-          <div className="bg-card rounded-xl shadow-card border border-border/50 p-8 md:p-12 text-center">
-            <CheckCircle2 size={40} className="mx-auto text-status-green mb-4" />
-            <h3 className="text-base md:text-lg font-semibold text-foreground mb-2">Tudo em dia!</h3>
-            <p className="text-sm text-muted-foreground">
-              Nenhuma tarefa pendente. Adicione uma nova tarefa acima.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Overdue Tasks */}
-            {overdueTasks.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-destructive mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-destructive" />
-                  Atrasadas ({overdueTasks.length})
-                </h3>
-                <div className="space-y-2">
-                  {overdueTasks.map((tarefa) => (
-                    <TaskCard
-                      key={tarefa.id}
-                      tarefa={tarefa}
-                      onDelete={handleDeleteTarefa}
-                      onEdit={handleEditTarefa}
-                      formatDate={formatDate}
-                      formatDateTime={formatDateTime}
-                      variant="overdue"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Today's Tasks */}
-            {todayTasks.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-status-yellow mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-status-yellow" />
-                  Para Hoje ({todayTasks.length})
-                </h3>
-                <div className="space-y-2">
-                  {todayTasks.map((tarefa) => (
-                    <TaskCard
-                      key={tarefa.id}
-                      tarefa={tarefa}
-                      onDelete={handleDeleteTarefa}
-                      onEdit={handleEditTarefa}
-                      formatDate={formatDate}
-                      formatDateTime={formatDateTime}
-                      variant="today"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Upcoming Tasks */}
-            {upcomingTasks.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-muted-foreground" />
-                  Próximas ({upcomingTasks.length})
-                </h3>
-                <div className="space-y-2">
-                  {upcomingTasks.map((tarefa) => (
-                    <TaskCard
-                      key={tarefa.id}
-                      tarefa={tarefa}
-                      onDelete={handleDeleteTarefa}
-                      onEdit={handleEditTarefa}
-                      formatDate={formatDate}
-                      formatDateTime={formatDateTime}
-                      variant="upcoming"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Edit Modal */}
-      <Dialog open={!!editingTarefa} onOpenChange={(open) => !open && setEditingTarefa(null)}>
-        <DialogPortal>
-          <DialogOverlay className="fixed inset-0 z-[100] bg-foreground/20" />
-          <DialogContent className="fixed left-[50%] top-[50%] z-[101] translate-x-[-50%] translate-y-[-50%] w-full h-full max-w-full max-h-full sm:max-w-md sm:h-auto sm:max-h-[85vh] rounded-none sm:rounded-lg flex flex-col items-start justify-start border bg-background p-6 shadow-lg">
-            <DialogHeader className="w-full">
-              <DialogTitle className="flex items-center gap-2">
-                <Pencil size={20} className="text-primary" />
-                Editar Tarefa
-              </DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleUpdateTarefa} className="space-y-4 mt-4 w-full">
+            {/* Content */}
+            <form onSubmit={handleUpdateTarefa} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
                   Descrição
@@ -367,26 +415,29 @@ const Anotacoes = () => {
                   className="form-input"
                 />
               </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingTarefa(null)}
-                  className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 btn-primary"
-                >
-                  Salvar
-                </button>
-              </div>
             </form>
-          </DialogContent>
-        </DialogPortal>
-      </Dialog>
-    </Layout>
+
+            {/* Footer */}
+            <div className="flex gap-3 p-4 sm:p-6 border-t pb-4">
+              <button
+                type="button"
+                onClick={() => setEditingTarefa(null)}
+                className="flex-1 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateTarefa}
+                className="flex-1 btn-primary"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

@@ -1,23 +1,33 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Menu } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useSidebarContext } from "./SidebarContext";
 import { UserMenu } from "./UserMenu";
+import { useSearch } from "@/contexts/SearchContext";
 
-interface HeaderProps {
-  searchPlaceholder?: string;
-}
-
-export function Header({ searchPlaceholder = "Procurar Detalhe" }: HeaderProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const navigate = useNavigate();
+export function Header() {
+  const [localSearchQuery, setLocalSearchQuery] = useState("");
+  const location = useLocation();
   const { toggleSidebar } = useSidebarContext();
+  const { executeSearch, getPlaceholder, searchQuery, setSearchQuery } = useSearch();
+
+  // Limpar busca quando mudar de página
+  useEffect(() => {
+    setLocalSearchQuery("");
+    setSearchQuery("");
+  }, [location.pathname, setSearchQuery]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/pacientes?search=${encodeURIComponent(searchQuery.trim())}`);
+    if (localSearchQuery.trim()) {
+      executeSearch(localSearchQuery.trim());
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setLocalSearchQuery(value);
+    setSearchQuery(value);
   };
 
   return (
@@ -41,9 +51,9 @@ export function Header({ searchPlaceholder = "Procurar Detalhe" }: HeaderProps) 
         <form onSubmit={handleSearch} className="w-full max-w-md">
           <input
             type="text"
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={getPlaceholder()}
+            value={localSearchQuery}
+            onChange={handleInputChange}
             className="w-full px-4 py-2 rounded-lg border border-sidebar-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
           />
         </form>

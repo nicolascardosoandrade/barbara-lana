@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, calcularIdade } from "@/lib/supabase";
 import { Cake, Gift, Phone, Mail, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -36,16 +37,42 @@ const calcularIdadeDetalhada = (dataNascimento: string): string => {
   return `${anos} ${anos === 1 ? 'ano' : 'anos'}, ${meses} ${meses === 1 ? 'mês' : 'meses'}, ${dias} ${dias === 1 ? 'dia' : 'dias'}`;
 };
 
-// Função para formatar data de nascimento corretamente
+// Função para formatar data de nascimento corretamente (dd/mm com zero à esquerda)
 const formatarDataNascimento = (dataNascimento: string): string => {
   const nascimento = new Date(dataNascimento + "T00:00:00");
-  return `${nascimento.getDate()}/${nascimento.getMonth() + 1}`;
+  const dia = nascimento.getDate().toString().padStart(2, '0');
+  const mes = (nascimento.getMonth() + 1).toString().padStart(2, '0');
+  return `${dia}/${mes}`;
 };
 
 const Aniversariantes = () => {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<"today" | "week" | "month">("today");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar aniversariante...",
+      onSearch: (query) => {
+        setSearchTerm(query);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o termo de busca quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     fetchPacientes();
@@ -69,12 +96,25 @@ const Aniversariantes = () => {
   };
 
   const getAniversariantes = () => {
+    // Normaliza a data de hoje para meia-noite (00:00:00)
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const todayMonth = today.getMonth();
     const todayDate = today.getDate();
 
+    // Calcula o início e fim da semana atual (domingo a sábado)
+    const dayOfWeek = today.getDay(); // 0 = domingo, 6 = sábado
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - dayOfWeek); // Vai para o domingo
+    weekStart.setHours(0, 0, 0, 0);
+    
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6); // Vai para o sábado
+    weekEnd.setHours(23, 59, 59, 999);
+
     return pacientes.filter((paciente) => {
-      const nascimento = new Date(paciente.data_nascimento);
+      // Normaliza a data de nascimento para evitar problemas de fuso horário
+      const nascimento = new Date(paciente.data_nascimento + "T00:00:00");
       const birthMonth = nascimento.getMonth();
       const birthDate = nascimento.getDate();
 
@@ -82,23 +122,23 @@ const Aniversariantes = () => {
         // Apenas aniversariantes de hoje
         return birthMonth === todayMonth && birthDate === todayDate;
       } else if (selectedPeriod === "week") {
-        for (let i = 0; i <= 7; i++) {
-          const checkDate = new Date(today);
-          checkDate.setDate(todayDate + i);
-          if (
-            checkDate.getMonth() === birthMonth &&
-            checkDate.getDate() === birthDate
-          ) {
-            return true;
-          }
-        }
-        return false;
+        // Cria a data do aniversário neste ano para comparar com a semana atual
+        const thisYearBirthday = new Date(
+          today.getFullYear(),
+          nascimento.getMonth(),
+          nascimento.getDate(),
+          0, 0, 0, 0
+        );
+        
+        // Verifica se o aniversário está dentro da semana atual
+        return thisYearBirthday >= weekStart && thisYearBirthday <= weekEnd;
       } else {
+        // Este Mês - aniversariantes do mês atual
         return birthMonth === todayMonth;
       }
     }).sort((a, b) => {
-      const dateA = new Date(a.data_nascimento);
-      const dateB = new Date(b.data_nascimento);
+      const dateA = new Date(a.data_nascimento + "T00:00:00");
+      const dateB = new Date(b.data_nascimento + "T00:00:00");
       const dayA = dateA.getDate();
       const dayB = dateB.getDate();
       return dayA - dayB;
@@ -132,7 +172,15 @@ const Aniversariantes = () => {
     return diffDays;
   };
 
-  const aniversariantes = getAniversariantes();
+  const aniversariantes = useMemo(() => {
+    const lista = getAniversariantes();
+    if (!searchTerm.trim()) return lista;
+    const searchLower = searchTerm.toLowerCase();
+    return lista.filter((p) =>
+      p.nome_completo.toLowerCase().includes(searchLower)
+    );
+  }, [pacientes, selectedPeriod, searchTerm]);
+
   const todayBirthdays = aniversariantes.filter(
     (p) => getDaysUntilBirthday(p.data_nascimento) === 0
   );

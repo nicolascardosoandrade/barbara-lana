@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarTelefone, formatarCPF, calcularIdade } from "@/lib/supabase";
@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Eye, Filter, Square, CheckSquare, ChevronLeft, ChevronRight, Search, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -109,10 +110,51 @@ const Pacientes = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar paciente...",
+      onSearch: (query) => {
+        setSearchTerm(query);
+        setCurrentPage(1);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o termo de busca quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setSearchTerm(searchQuery);
+      setCurrentPage(1);
+    }
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchPacientes();
     fetchConvenios();
   }, []);
+
+  // Bloquear scroll da página quando modal/popup estiver aberto
+  useEffect(() => {
+    const isAnyModalOpen = showModal || showDetailsModal;
+    
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    
+    // Cleanup ao desmontar o componente
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showModal, showDetailsModal]);
 
   useEffect(() => {
     const search = searchParams.get("search");

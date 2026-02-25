@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Check, Filter, Square, CheckSquare, Eye, ChevronLeft, ChevronRight, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
+import { useSearch } from "@/contexts/SearchContext";
 
 interface Convenio {
   id: number;
@@ -77,9 +78,48 @@ const Convenios = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar convênio...",
+      onSearch: (query) => {
+        setFilterNome(query);
+        setCurrentPage(1);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o filtro quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setFilterNome(searchQuery);
+      setCurrentPage(1);
+    }
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchConvenios();
   }, []);
+
+  // Bloquear scroll da página quando modal estiver aberto
+  useEffect(() => {
+    if (showModal || showDetailsModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    
+    // Cleanup ao desmontar o componente
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showModal, showDetailsModal]);
 
   useEffect(() => {
     applyFilters();
@@ -704,9 +744,11 @@ const Convenios = () => {
         </div>
       </div>
 
-      {/* Modal - Fullscreen on mobile */}
+    </Layout>
+
+      {/* Modal - Fullscreen on mobile - Fora do Layout para sobrepor sidebar/topbar */}
       {showModal && (
-        <div className="fixed inset-0 bg-foreground/20 z-[60] flex items-center justify-center p-0 md:p-4">
+        <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-0 md:p-4">
           <div className="bg-card md:rounded-xl shadow-lg w-full h-full md:h-auto md:max-w-lg animate-scale-in flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border bg-sidebar md:bg-card md:rounded-t-xl shrink-0">
               <h3 className="text-lg font-semibold text-sidebar-foreground md:text-foreground">
@@ -822,7 +864,6 @@ const Convenios = () => {
           </div>
         </div>
       )}
-    </Layout>
 
       {/* Modal de Detalhes do Convênio - Fora do Layout para sobrepor sidebar/topbar */}
       {showDetailsModal && viewingConvenio && (

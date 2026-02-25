@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, formatarCPF, formatarData, calcularIdade } from "@/lib/supabase";
 import { X, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useSearch, matchesSearch } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -28,8 +29,27 @@ interface Paciente {
 const PacienteDetalhes = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { registerSearch, unregisterSearch } = useSearch();
   const [paciente, setPaciente] = useState<Paciente | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Registrar pesquisa contextual - busca nos campos do paciente
+  const handleSearch = useCallback((query: string) => {
+    // Nesta página de detalhes, a pesquisa pode ser usada para destacar campos
+    // ou podemos redirecionar para a página de pacientes com a busca
+    if (query.trim()) {
+      navigate(`/pacientes?search=${encodeURIComponent(query.trim())}`);
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar outro paciente...",
+      onSearch: handleSearch,
+      enabled: true,
+    });
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch, handleSearch]);
 
   useEffect(() => {
     if (id) fetchPaciente();

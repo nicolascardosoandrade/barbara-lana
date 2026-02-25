@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Search, Calendar, Filter, Square, CheckSquare, FileSpreadsheet, Clock, User, MapPin, Video, Eye, ChevronLeft, ChevronRight, Coffee, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
+import { useSearch } from "@/contexts/SearchContext";
 
 // Função para formatar valor como moeda brasileira enquanto digita
 const formatarValorInput = (valor: string): string => {
@@ -116,7 +117,7 @@ const Agendamentos = () => {
     inicio: "",
     fim: "",
     convenio: "",
-    consulta: "",
+    consulta: "Sessão",
     modalidade: "",
     frequencia: "",
     observacoes: "",
@@ -154,6 +155,31 @@ const Agendamentos = () => {
   
   const pacienteDropdownRef = useRef<HTMLDivElement>(null);
   const convenioDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Context search integration
+  const { registerSearch, unregisterSearch, searchQuery } = useSearch();
+
+  // Registrar a busca contextual
+  useEffect(() => {
+    registerSearch({
+      placeholder: "Procurar agendamento...",
+      onSearch: (query) => {
+        setSearchTerm(query);
+        setCurrentPage(1);
+      },
+      enabled: true,
+    });
+
+    return () => unregisterSearch();
+  }, [registerSearch, unregisterSearch]);
+
+  // Atualizar o termo de busca quando a busca do header mudar
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      setSearchTerm(searchQuery);
+      setCurrentPage(1);
+    }
+  }, [searchQuery]);
 
   // Função para normalizar texto removendo acentos
   const normalizeText = (text: string): string => {
@@ -224,6 +250,22 @@ const Agendamentos = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Bloquear scroll da página quando modal/popup estiver aberto
+  useEffect(() => {
+    const isAnyModalOpen = showModal || showCompromissoModal || showDetailsModal || showCompromissoDetailsModal;
+    
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    
+    // Cleanup ao desmontar o componente
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showModal, showCompromissoModal, showDetailsModal, showCompromissoDetailsModal]);
 
   // Handle edit and view params from URL (coming from Agenda page)
   useEffect(() => {
@@ -758,7 +800,7 @@ const Agendamentos = () => {
       inicio: "",
       fim: "",
       convenio: "",
-      consulta: "",
+      consulta: "Sessão",
       modalidade: "",
       frequencia: "",
       observacoes: "",

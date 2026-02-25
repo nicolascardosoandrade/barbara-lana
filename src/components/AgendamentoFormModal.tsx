@@ -89,7 +89,7 @@ const defaultFormData: AgendamentoFormData = {
   inicio: "",
   fim: "",
   convenio: "",
-  consulta: "",
+  consulta: "Sessão",
   modalidade: "",
   frequencia: "",
   observacoes: "",
