@@ -224,7 +224,7 @@ const Agendamentos = () => {
   const fetchData = useCallback(async () => {
     try {
       const [agendamentosRes, conveniosRes, pacientesRes, compromissosRes] = await Promise.all([
-        supabase.from("agendamentos").select("*").order("data_consulta", { ascending: true }).order("inicio", { ascending: true }),
+        supabase.from("agendamentos").select("*").order("data_consulta", { ascending: false }).order("inicio", { ascending: true }),
         supabase.from("convenios").select("*").eq("ativo", true),
         supabase.from("pacientes").select("id, nome_completo, telefone, convenio").eq("situacao", "Ativo"),
         supabase.from("compromissos_pessoais").select("*").order("data_compromisso", { ascending: false }),
