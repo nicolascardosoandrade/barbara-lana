@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { supabase, calcularIdade } from "@/lib/supabase";
 import { Cake, Gift, Phone, Mail, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
-import { useSearch } from "@/contexts/SearchContext";
+import { useSearch, normalizeText } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -175,9 +175,9 @@ const Aniversariantes = () => {
   const aniversariantes = useMemo(() => {
     const lista = getAniversariantes();
     if (!searchTerm.trim()) return lista;
-    const searchLower = searchTerm.toLowerCase();
+    const normalizedSearch = normalizeText(searchTerm);
     return lista.filter((p) =>
-      p.nome_completo.toLowerCase().includes(searchLower)
+      normalizeText(p.nome_completo).includes(normalizedSearch)
     );
   }, [pacientes, selectedPeriod, searchTerm]);
 

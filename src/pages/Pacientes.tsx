@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Eye, Filter, Square, CheckSquare, ChevronLeft, ChevronRight, Search, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
-import { useSearch } from "@/contexts/SearchContext";
+import { useSearch, normalizeText } from "@/contexts/SearchContext";
 
 interface Paciente {
   id: number;
@@ -421,15 +421,16 @@ const Pacientes = () => {
   };
 
   const filteredPacientes = pacientes.filter((p) => {
-    const matchesSearch =
-      p.nome_completo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const normalizedSearch = normalizeText(searchTerm);
+    const matchesSearchResult =
+      normalizeText(p.nome_completo).includes(normalizedSearch) ||
       p.cpf.includes(searchTerm) ||
       p.telefone.includes(searchTerm);
     const matchesConvenio = !filterConvenio || p.convenio === filterConvenio;
     const matchesSituacao = filterSituacao === "todos" || p.situacao === filterSituacao;
     const matchesGenero = !filterGenero || p.genero === filterGenero;
 
-    return matchesSearch && matchesConvenio && matchesSituacao && matchesGenero;
+    return matchesSearchResult && matchesConvenio && matchesSituacao && matchesGenero;
   });
 
   // Pagination calculations

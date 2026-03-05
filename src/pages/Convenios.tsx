@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Check, Filter, Square, CheckSquare, Eye, ChevronLeft, ChevronRight, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
-import { useSearch } from "@/contexts/SearchContext";
+import { useSearch, normalizeText } from "@/contexts/SearchContext";
 
 interface Convenio {
   id: number;
@@ -130,13 +130,13 @@ const Convenios = () => {
 
     if (filterNome) {
       filtered = filtered.filter((c) =>
-        c.nome_convenio.toLowerCase().includes(filterNome.toLowerCase())
+        normalizeText(c.nome_convenio).includes(normalizeText(filterNome))
       );
     }
 
     if (filterConsulta) {
       filtered = filtered.filter((c) =>
-        c.consulta.toLowerCase().includes(filterConsulta.toLowerCase())
+        normalizeText(c.consulta).includes(normalizeText(filterConsulta))
       );
     }
 

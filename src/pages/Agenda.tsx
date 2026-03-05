@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ChevronLeft, ChevronRight, Clock, User, MapPin, Video, X, ThumbsUp, XCircle, Phone, CalendarDays, CalendarCheck, Coffee, Pencil, Plus, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { AgendamentoFormModal } from "@/components/AgendamentoFormModal";
+import { normalizeText } from "@/contexts/SearchContext";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSearch } from "@/contexts/SearchContext";
 
@@ -95,11 +96,11 @@ const Agenda = () => {
   // Filtrar agendamentos baseado no termo de busca
   const filteredAgendamentos = useMemo(() => {
     if (!searchTerm.trim()) return agendamentos;
-    const searchLower = searchTerm.toLowerCase();
+    const normalizedSearch = normalizeText(searchTerm);
     return agendamentos.filter((ag) =>
-      ag.nome_paciente.toLowerCase().includes(searchLower) ||
-      ag.convenio.toLowerCase().includes(searchLower) ||
-      ag.consulta.toLowerCase().includes(searchLower)
+      normalizeText(ag.nome_paciente).includes(normalizedSearch) ||
+      normalizeText(ag.convenio).includes(normalizedSearch) ||
+      normalizeText(ag.consulta).includes(normalizedSearch)
     );
   }, [agendamentos, searchTerm]);
 
@@ -242,22 +243,33 @@ const Agenda = () => {
 
   const fetchAgendamentos = async () => {
     try {
+      // Calcular range que cobre todas as views possíveis:
+      // - Mês: inclui semanas parciais no início/fim do mês
+      // - Semana: a semana atual pode cruzar meses
+      // - Dia: o dia atual
+      // Usamos uma margem de 7 dias antes do início do mês e 7 dias após o fim,
+      // garantindo que a view semanal sempre tenha dados completos.
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+      
+      const rangeStart = new Date(startOfMonth);
+      rangeStart.setDate(rangeStart.getDate() - 7);
+      const rangeEnd = new Date(endOfMonth);
+      rangeEnd.setDate(rangeEnd.getDate() + 7);
 
       const [agendamentosRes, compromissosRes] = await Promise.all([
         supabase
           .from("agendamentos")
           .select("*")
-          .gte("data_consulta", formatLocalDateStr(startOfMonth))
-          .lte("data_consulta", formatLocalDateStr(endOfMonth))
+          .gte("data_consulta", formatLocalDateStr(rangeStart))
+          .lte("data_consulta", formatLocalDateStr(rangeEnd))
           .order("data_consulta")
           .order("inicio"),
         supabase
           .from("compromissos_pessoais")
           .select("*")
-          .gte("data_compromisso", formatLocalDateStr(startOfMonth))
-          .lte("data_compromisso", formatLocalDateStr(endOfMonth))
+          .gte("data_compromisso", formatLocalDateStr(rangeStart))
+          .lte("data_compromisso", formatLocalDateStr(rangeEnd))
           .order("data_compromisso")
           .order("inicio"),
       ]);

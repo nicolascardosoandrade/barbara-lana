@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Trash2, FileText, Calendar, CheckCircle2, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
-import { useSearch } from "@/contexts/SearchContext";
+import { useSearch, normalizeText } from "@/contexts/SearchContext";
 
 interface Tarefa {
   id: number;
@@ -64,9 +64,9 @@ const Anotacoes = () => {
   // Filtrar tarefas baseado no termo de busca
   const filteredTarefas = useMemo(() => {
     if (!searchTerm.trim()) return tarefas;
-    const searchLower = searchTerm.toLowerCase();
+    const normalizedSearch = normalizeText(searchTerm);
     return tarefas.filter((tarefa) =>
-      tarefa.descricao.toLowerCase().includes(searchLower)
+      normalizeText(tarefa.descricao).includes(normalizedSearch)
     );
   }, [tarefas, searchTerm]);
 

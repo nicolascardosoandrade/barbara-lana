@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Plus, Pencil, Trash2, X, Search, Calendar, Filter, Square, CheckSquare, FileSpreadsheet, Clock, User, MapPin, Video, Eye, ChevronLeft, ChevronRight, Coffee, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { utils, writeFile } from "xlsx";
-import { useSearch } from "@/contexts/SearchContext";
+import { useSearch, normalizeText } from "@/contexts/SearchContext";
 
 // Função para formatar valor como moeda brasileira enquanto digita
 const formatarValorInput = (valor: string): string => {
@@ -307,7 +307,7 @@ const Agendamentos = () => {
   }, [searchParams, agendamentos]);
 
 
-  // Sync em tempo real: garante que mudanças feitas na Agenda (ex.: Não Desmarcado) reflitam aqui imediatamente
+  // Sync em tempo real: garante que mudanças feitas na Agenda reflitam aqui imediatamente
   useEffect(() => {
     if (!user) return;
 
@@ -316,6 +316,13 @@ const Agendamentos = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "agendamentos" },
+        () => {
+          fetchData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "compromissos_pessoais" },
         () => {
           fetchData();
         }
@@ -814,14 +821,15 @@ const Agendamentos = () => {
   };
 
   const filteredAgendamentos = agendamentos.filter((a) => {
-    const matchesSearch =
-      a.nome_paciente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.convenio.toLowerCase().includes(searchTerm.toLowerCase());
+    const normalizedSearch = normalizeText(searchTerm);
+    const matchesSearchResult =
+      normalizeText(a.nome_paciente).includes(normalizedSearch) ||
+      normalizeText(a.convenio).includes(normalizedSearch);
     const matchesDate = !dateFilter || a.data_consulta === dateFilter;
     const matchesConvenio = !filterConvenio || a.convenio === filterConvenio;
     const matchesModalidade = !filterModalidade || a.modalidade === filterModalidade;
     const matchesStatus = !filterStatus || a.color === filterStatus;
-    return matchesSearch && matchesDate && matchesConvenio && matchesModalidade && matchesStatus;
+    return matchesSearchResult && matchesDate && matchesConvenio && matchesModalidade && matchesStatus;
   });
 
   const totalPages = Math.ceil(filteredAgendamentos.length / itemsPerPage);
@@ -890,6 +898,27 @@ const Agendamentos = () => {
     const wb = utils.book_new();
     utils.book_append_sheet(wb, ws, "Agendamentos");
     writeFile(wb, "agendamentos.xlsx");
+    toast.success("Planilha exportada com sucesso!");
+  };
+
+  const exportCompromissosToExcel = () => {
+    const filteredCompromissos = compromissos
+      .filter((c) => !dateFilter || c.data_compromisso === dateFilter)
+      .filter((c) => !searchTerm || normalizeText(c.nome).includes(normalizeText(searchTerm)));
+
+    const dataToExport = filteredCompromissos.map((c) => ({
+      "Nome": c.nome,
+      "Data": formatDate(c.data_compromisso),
+      "Início": c.inicio.substring(0, 5),
+      "Término": c.fim.substring(0, 5),
+      "Status": compromissoStatusColors[c.status]?.label || c.status,
+      "Observações": c.observacoes || "",
+    }));
+
+    const ws = utils.json_to_sheet(dataToExport);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Compromissos Pessoais");
+    writeFile(wb, "compromissos_pessoais.xlsx");
     toast.success("Planilha exportada com sucesso!");
   };
 
@@ -1052,7 +1081,7 @@ const Agendamentos = () => {
         {compromissos.length > 0 && (() => {
           const filteredCompromissos = compromissos
             .filter((c) => !dateFilter || c.data_compromisso === dateFilter)
-            .filter((c) => !searchTerm || c.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+            .filter((c) => !searchTerm || normalizeText(c.nome).includes(normalizeText(searchTerm)));
           
           const totalCompromissos = filteredCompromissos.length;
           const totalCompromissosPages = Math.ceil(totalCompromissos / compromissosPerPage);
@@ -1062,11 +1091,18 @@ const Agendamentos = () => {
 
           return (
             <div className="bg-card rounded-xl shadow-card border border-border/50 mb-4 md:mb-6 overflow-hidden">
-              <div className="px-4 py-3 border-b border-border/50 bg-amber-500/5">
+              <div className="px-4 py-3 border-b border-border/50 bg-amber-500/5 flex items-center justify-between">
                 <h3 className="font-semibold text-foreground flex items-center gap-2">
                   <Coffee size={18} className="text-amber-500" />
                   Compromissos Pessoais
                 </h3>
+                <button
+                  onClick={exportCompromissosToExcel}
+                  className="p-2 md:p-3 rounded-lg border bg-card text-foreground border-border hover:bg-muted transition-colors"
+                  title="Exportar Excel"
+                >
+                  <FileSpreadsheet size={18} className="md:w-5 md:h-5" />
+                </button>
               </div>
               
               {/* Desktop Table */}

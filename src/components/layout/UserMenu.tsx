@@ -1,9 +1,9 @@
-import { useState, useRef } from "react";
-import { User, Settings, LogOut, Moon, Sun, Save, X, Loader2, Trash2, Upload, FileSpreadsheet, Users, Building2, Calendar } from "lucide-react";
+import { useState } from "react";
+import { User, Settings, LogOut, Moon, Sun, Save, X, Loader2, Trash2, FileSpreadsheet, Users, Building2, Calendar, Coffee } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/hooks/use-toast";
-import { useExcelImport } from "@/hooks/useExcelImport";
+import { ImportModal } from "@/components/ImportModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,14 +40,11 @@ export function UserMenu() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { isImporting, importType, handleFileSelect } = useExcelImport();
-  
-  const pacientesInputRef = useRef<HTMLInputElement>(null);
-  const conveniosInputRef = useRef<HTMLInputElement>(null);
-  const agendamentosInputRef = useRef<HTMLInputElement>(null);
   
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importType, setImportType] = useState<"pacientes" | "convenios" | "agendamentos" | "compromissos">("pacientes");
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [nome, setNome] = useState("");
@@ -284,43 +281,15 @@ export function UserMenu() {
               <p className="text-xs text-muted-foreground">
                 Importe dados de arquivos Excel (.xlsx) exportados pelo sistema.
               </p>
-              
-              {/* Hidden file inputs */}
-              <input
-                ref={pacientesInputRef}
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => handleFileSelect(e, "pacientes")}
-              />
-              <input
-                ref={conveniosInputRef}
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => handleFileSelect(e, "convenios")}
-              />
-              <input
-                ref={agendamentosInputRef}
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => handleFileSelect(e, "agendamentos")}
-              />
 
               <div className="space-y-2">
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => pacientesInputRef.current?.click()}
-                  disabled={isImporting}
+                  onClick={() => { setImportType("pacientes"); setImportModalOpen(true); }}
                 >
-                  {isImporting && importType === "pacientes" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Users className="mr-2 h-4 w-4" />
-                  )}
+                  <Users className="mr-2 h-4 w-4" />
                   Importar Pacientes
                 </Button>
                 
@@ -328,14 +297,9 @@ export function UserMenu() {
                   variant="outline"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => conveniosInputRef.current?.click()}
-                  disabled={isImporting}
+                  onClick={() => { setImportType("convenios"); setImportModalOpen(true); }}
                 >
-                  {isImporting && importType === "convenios" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Building2 className="mr-2 h-4 w-4" />
-                  )}
+                  <Building2 className="mr-2 h-4 w-4" />
                   Importar Convênios
                 </Button>
                 
@@ -343,15 +307,20 @@ export function UserMenu() {
                   variant="outline"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => agendamentosInputRef.current?.click()}
-                  disabled={isImporting}
+                  onClick={() => { setImportType("agendamentos"); setImportModalOpen(true); }}
                 >
-                  {isImporting && importType === "agendamentos" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Calendar className="mr-2 h-4 w-4" />
-                  )}
+                  <Calendar className="mr-2 h-4 w-4" />
                   Importar Agendamentos
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => { setImportType("compromissos"); setImportModalOpen(true); }}
+                >
+                  <Coffee className="mr-2 h-4 w-4" />
+                  Importar Compromissos Pessoais
                 </Button>
               </div>
             </div>
@@ -429,6 +398,12 @@ export function UserMenu() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ImportModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        type={importType}
+      />
     </>
   );
 }
